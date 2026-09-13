@@ -88,7 +88,7 @@ export interface paths {
         };
         /**
          * 知乎 OAuth 回调
-         * @description 服务端换取 Token 和用户资料，将游客会话升级为知乎用户会话后跳转回 Web。
+         * @description 服务端换取 Token，将游客会话升级为知乎授权会话后跳转回 Web。
          */
         get: operations["handleZhihuCallback"];
         put?: never;
@@ -750,6 +750,8 @@ export interface operations {
                 };
                 content?: never;
             };
+            400: components["responses"]["BadRequest"];
+            502: components["responses"]["UpstreamFailure"];
         };
     };
     handleZhihuCallback: {

@@ -51,6 +51,7 @@ export function createApp(dependencies: AppDependencies = createAppDependencies(
     createAuthRouter({
       sessionStore: dependencies.sessionStore,
       secureCookies: dependencies.secureCookies,
+      zhihuOAuthService: dependencies.zhihuOAuthService,
     }),
   );
   app.use(

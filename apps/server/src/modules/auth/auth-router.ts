@@ -4,12 +4,19 @@ import { z } from "zod";
 import { sendApiError } from "../../http/api-error.js";
 import type { SessionStore } from "../../stores/session-store.js";
 import {
+  clearOAuthAttemptCookie,
+  readOAuthAttemptCookie,
+  setOAuthAttemptCookie,
+} from "./oauth-attempt-cookie.js";
+import {
   clearSessionCookie,
   createGuestSession,
   readSession,
   setSessionCookie,
   toSessionResponse,
 } from "./session.js";
+import { ZhihuOAuthUpstreamError } from "./zhihu-oauth-client.js";
+import { InvalidOAuthAttemptError, type ZhihuOAuthService } from "./zhihu-oauth-service.js";
 
 const guestSessionBodySchema = z
   .object({
@@ -17,9 +24,23 @@ const guestSessionBodySchema = z
   })
   .strict();
 
+const authorizeQuerySchema = z
+  .object({
+    returnTo: z.string().max(500).optional(),
+  })
+  .strict();
+
+const callbackQuerySchema = z
+  .object({
+    authorization_code: z.string().min(1),
+    state: z.string().min(1).optional(),
+  })
+  .strict();
+
 export interface AuthRouterOptions {
   sessionStore: SessionStore;
   secureCookies: boolean;
+  zhihuOAuthService: ZhihuOAuthService | null;
 }
 
 export function createAuthRouter(options: AuthRouterOptions): Router {
@@ -55,6 +76,79 @@ export function createAuthRouter(options: AuthRouterOptions): Router {
     }
 
     response.json(toSessionResponse(session));
+  });
+
+  router.get("/zhihu/authorize", (request, response) => {
+    if (!options.zhihuOAuthService) {
+      sendApiError(response, 502, "ZHIHU_OAUTH_UNAVAILABLE", "知乎 OAuth 尚未配置");
+      return;
+    }
+
+    const parsedQuery = authorizeQuerySchema.safeParse(request.query);
+    if (!parsedQuery.success) {
+      sendApiError(response, 400, "VALIDATION_ERROR", "请求参数不合法", {
+        issues: parsedQuery.error.issues,
+      });
+      return;
+    }
+
+    let session = readSession(request, options.sessionStore);
+    if (!session) {
+      session = createGuestSession();
+      options.sessionStore.save(session);
+      setSessionCookie(response, session.sessionId, options.secureCookies);
+    }
+
+    const authorization = options.zhihuOAuthService.start(session, parsedQuery.data.returnTo);
+    setOAuthAttemptCookie(
+      response,
+      authorization.attemptId,
+      options.secureCookies,
+      options.zhihuOAuthService.attemptTtlMilliseconds,
+    );
+    response.redirect(302, authorization.authorizationUrl);
+  });
+
+  router.get("/zhihu/callback", async (request, response) => {
+    if (!options.zhihuOAuthService) {
+      sendApiError(response, 502, "ZHIHU_OAUTH_UNAVAILABLE", "知乎 OAuth 尚未配置");
+      return;
+    }
+
+    const parsedQuery = callbackQuerySchema.safeParse(request.query);
+    const attemptId = readOAuthAttemptCookie(request);
+    const session = readSession(request, options.sessionStore);
+    clearOAuthAttemptCookie(response, options.secureCookies);
+
+    if (!parsedQuery.success || !attemptId || !session) {
+      sendApiError(response, 400, "INVALID_OAUTH_CALLBACK", "OAuth 回调无效或已过期", {
+        issues: parsedQuery.success ? [] : parsedQuery.error.issues,
+      });
+      return;
+    }
+
+    try {
+      const completed = await options.zhihuOAuthService.complete({
+        attemptId,
+        authorizationCode: parsedQuery.data.authorization_code,
+        ...(parsedQuery.data.state ? { returnedState: parsedQuery.data.state } : {}),
+        session,
+      });
+      setSessionCookie(response, completed.session.sessionId, options.secureCookies);
+      response.redirect(302, completed.redirectUrl);
+    } catch (error) {
+      if (error instanceof InvalidOAuthAttemptError) {
+        sendApiError(response, 400, "INVALID_OAUTH_CALLBACK", "OAuth 回调无效或已过期");
+        return;
+      }
+
+      if (error instanceof ZhihuOAuthUpstreamError) {
+        sendApiError(response, 502, "ZHIHU_OAUTH_FAILED", "知乎 OAuth 服务暂时不可用");
+        return;
+      }
+
+      sendApiError(response, 502, "ZHIHU_OAUTH_FAILED", "知乎 OAuth 登录失败");
+    }
   });
 
   router.post("/logout", (request, response) => {

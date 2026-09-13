@@ -44,6 +44,7 @@ function createTestContext() {
   const app = createApp({
     sessionStore,
     roomStore,
+    zhihuOAuthService: null,
     rtcCredentialService: null,
     sessionSecret,
     secureCookies: false,

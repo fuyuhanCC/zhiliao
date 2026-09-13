@@ -43,6 +43,7 @@ function createTestApp(
   return createApp({
     sessionStore,
     roomStore,
+    zhihuOAuthService: null,
     rtcCredentialService: service,
     sessionSecret: "test-session-secret-with-at-least-32-characters",
     secureCookies: false,
@@ -58,6 +59,7 @@ function createFailingTestApp() {
   return createApp({
     sessionStore,
     roomStore,
+    zhihuOAuthService: null,
     rtcCredentialService: new RtcCredentialService({
       sdkAppId: 1_400_000_000,
       secretKey: "test-secret",

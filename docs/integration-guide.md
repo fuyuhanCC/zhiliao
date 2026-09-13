@@ -55,6 +55,18 @@ Browser :5173 ── /api/* ──────> Vite proxy ──> Server :3000
 
 这种方式让 Cookie、REST 和 Socket.IO 在浏览器看来保持同源。前端业务代码不得写死 `localhost:3000`。
 
+### 3.1 知乎 OAuth 本地配置
+
+按照[知乎 OAuth 官方文档](https://developer.zhihu.com/docs?key=zhihu_oauth_integrated)申请 `app_id` 和 `app_key`，并将登记的回调地址与环境变量保持完全一致：
+
+```dotenv
+ZHIHU_OAUTH_APP_ID=<申请到的 app_id>
+ZHIHU_OAUTH_APP_KEY=<申请到的 app_key>
+ZHIHU_REDIRECT_URI=http://localhost:3000/api/v1/auth/zhihu/callback
+```
+
+前端从 `GET /api/v1/auth/zhihu/authorize?returnTo=<站内路径>` 开始登录，不应自行拼装知乎授权地址，也不能接触 `app_key` 或用户 Token。当前官方文档尚未公布“获取用户信息”接口的 URL 和响应结构，因此现阶段授权成功后保留用户已有昵称与头像；知乎补充该接口后再在服务端 OAuth 网关中接入真实资料。
+
 ## 4. 分别启动
 
 后端开发者：

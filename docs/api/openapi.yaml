@@ -90,6 +90,7 @@ paths:
       operationId: authorizeZhihu
       summary: 开始知乎 OAuth 授权
       description: 创建一次性 OAuth 尝试 Cookie 后跳转到知乎授权页。
+      security: []
       parameters:
         - name: returnTo
           in: query
@@ -107,13 +108,17 @@ paths:
               schema:
                 type: string
                 format: uri
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "502":
+          $ref: "#/components/responses/UpstreamFailure"
 
   /auth/zhihu/callback:
     get:
       tags: [Auth]
       operationId: handleZhihuCallback
       summary: 知乎 OAuth 回调
-      description: 服务端换取 Token 和用户资料，将游客会话升级为知乎用户会话后跳转回 Web。
+      description: 服务端换取 Token，将游客会话升级为知乎授权会话后跳转回 Web。
       security: []
       parameters:
         - name: authorization_code
