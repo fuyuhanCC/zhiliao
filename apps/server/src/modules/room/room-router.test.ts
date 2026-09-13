@@ -5,8 +5,10 @@ import request from "supertest";
 import { describe, expect, it } from "vitest";
 
 import { createApp } from "../../app.js";
+import { MemoryChatStore } from "../../stores/memory/chat-store.js";
 import { MemoryRoomStore } from "../../stores/memory/room-store.js";
 import { MemorySessionStore } from "../../stores/memory/session-store.js";
+import { MemorySpeechTurnStore } from "../../stores/memory/speech-turn-store.js";
 import type { UserSession } from "../../stores/session-store.js";
 import { SESSION_COOKIE_NAME } from "../auth/session.js";
 
@@ -44,6 +46,8 @@ function createTestContext() {
   const app = createApp({
     sessionStore,
     roomStore,
+    chatStore: new MemoryChatStore(),
+    speechTurnStore: new MemorySpeechTurnStore(),
     zhihuOAuthService: null,
     rtcCredentialService: null,
     sessionSecret,

@@ -2,9 +2,11 @@ import request from "supertest";
 import { describe, expect, it, vi } from "vitest";
 
 import { createApp } from "../../app.js";
+import { MemoryChatStore } from "../../stores/memory/chat-store.js";
 import { MemoryOAuthAttemptStore } from "../../stores/memory/oauth-attempt-store.js";
 import { MemoryRoomStore } from "../../stores/memory/room-store.js";
 import { MemorySessionStore } from "../../stores/memory/session-store.js";
+import { MemorySpeechTurnStore } from "../../stores/memory/speech-turn-store.js";
 import type { ZhihuOAuthClient } from "./zhihu-oauth-client.js";
 import { ZhihuOAuthUpstreamError } from "./zhihu-oauth-client.js";
 import { ZhihuOAuthService } from "./zhihu-oauth-service.js";
@@ -36,6 +38,8 @@ function createTestContext(client: ZhihuOAuthClient = createSuccessfulClient(), 
   const app = createApp({
     sessionStore,
     roomStore: new MemoryRoomStore(),
+    chatStore: new MemoryChatStore(),
+    speechTurnStore: new MemorySpeechTurnStore(),
     zhihuOAuthService: oauthService,
     rtcCredentialService: null,
     sessionSecret,
@@ -195,6 +199,8 @@ describe("Zhihu OAuth routes", () => {
     const app = createApp({
       sessionStore: new MemorySessionStore(),
       roomStore: new MemoryRoomStore(),
+      chatStore: new MemoryChatStore(),
+      speechTurnStore: new MemorySpeechTurnStore(),
       zhihuOAuthService: null,
       rtcCredentialService: null,
       sessionSecret,

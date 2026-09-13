@@ -13,6 +13,7 @@ import { createAppDependencies, type AppDependencies } from "./dependencies.js";
 import { sendApiError } from "./http/api-error.js";
 import { createAuthRouter } from "./modules/auth/auth-router.js";
 import { createRoomRouter } from "./modules/room/room-router.js";
+import { createRoomHistoryRouter } from "./modules/room-history/room-history-router.js";
 import { createRtcCredentialRouter } from "./modules/rtc-credential/rtc-credential-router.js";
 
 const publicDirectory = path.resolve(import.meta.dirname, "../public");
@@ -60,6 +61,14 @@ export function createApp(dependencies: AppDependencies = createAppDependencies(
       sessionStore: dependencies.sessionStore,
       roomStore: dependencies.roomStore,
       webOrigin: dependencies.webOrigin,
+    }),
+  );
+  app.use(
+    "/api/v1",
+    createRoomHistoryRouter({
+      roomStore: dependencies.roomStore,
+      chatStore: dependencies.chatStore,
+      speechTurnStore: dependencies.speechTurnStore,
     }),
   );
   app.use(

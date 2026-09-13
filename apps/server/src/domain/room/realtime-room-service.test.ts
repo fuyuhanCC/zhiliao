@@ -2,6 +2,8 @@ import type { PublicUser } from "@zhiliao/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { MemoryRoomStore } from "../../stores/memory/room-store.js";
+import { MemoryChatStore } from "../../stores/memory/chat-store.js";
+import { MemorySpeechTurnStore } from "../../stores/memory/speech-turn-store.js";
 import { createRoomSnapshot } from "../../test/room-fixture.js";
 import {
   RealtimeRoomService,
@@ -27,6 +29,8 @@ function participant(
 describe("RealtimeRoomService", () => {
   const roomId = "room_realtime";
   let roomStore: MemoryRoomStore;
+  let chatStore: MemoryChatStore;
+  let speechTurnStore: MemorySpeechTurnStore;
   let events: RealtimeStateEvent[];
   let service: RealtimeRoomService;
 
@@ -34,10 +38,14 @@ describe("RealtimeRoomService", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-09-13T08:00:00.000Z"));
     roomStore = new MemoryRoomStore();
+    chatStore = new MemoryChatStore();
+    speechTurnStore = new MemorySpeechTurnStore();
     roomStore.save(createRoomSnapshot(roomId));
     events = [];
     service = new RealtimeRoomService({
       roomStore,
+      chatStore,
+      speechTurnStore,
       emit: (event) => events.push(event),
       generateId: () => `id-${events.length + 1}`,
       speechLimitMilliseconds: 120_000,
@@ -153,6 +161,41 @@ describe("RealtimeRoomService", () => {
           event.name === "speech:closed" && event.event.data.releaseReason === "disconnected",
       ),
     ).toBe(true);
+  });
+
+  it("persists chat and closes the speech turn with its like count", () => {
+    const speaker = participant(1);
+    const audience = participant(2, "guest");
+    service.join(roomId, speaker);
+    service.join(roomId, audience);
+    service.requestSeat(roomId, speaker);
+    const acquired = service.acquireSpeaker(roomId, speaker);
+    if (!acquired.ok) {
+      throw new Error("expected speaker acquisition to succeed");
+    }
+
+    service.sendChat(roomId, audience, "client-message-1", "一条公屏消息");
+    service.likeSpeaker(roomId, audience, acquired.data.speechTurnId);
+    service.releaseSpeakerByUser(roomId, speaker, acquired.data.speechTurnId);
+
+    expect(chatStore.list(roomId, { limit: 30 })).toMatchObject({
+      items: [{ content: "一条公屏消息", sender: { userId: "user-2" } }],
+      nextCursor: null,
+    });
+    expect(speechTurnStore.list(roomId, { limit: 50 })).toMatchObject({
+      items: [
+        {
+          speechTurnId: acquired.data.speechTurnId,
+          speaker: { userId: "user-1" },
+          endedAt: "2026-09-13T08:00:00.000Z",
+          releaseReason: "user_finished",
+          likeCount: 1,
+          transcript: { status: "pending", source: null, text: null },
+        },
+      ],
+      nextCursor: null,
+      transcriptVersion: 0,
+    });
   });
 
   it("keeps a seat during the disconnect grace period and cleans it afterwards", async () => {

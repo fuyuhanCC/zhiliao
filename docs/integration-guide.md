@@ -138,6 +138,8 @@ socket.emit(
 
 服务端 `Socket.IO Server` 已绑定 `ClientToServerEvents` 和 `ServerToClientEvents`，错误的事件名、载荷或 ACK 会在编译阶段暴露。
 
+公屏和发言日志首屏分别通过 `GET /rooms/{roomId}/messages` 与 `GET /rooms/{roomId}/speech-turns` 获取。接口返回最近一页、页内按时间正序排列；继续加载更早内容时原样传回 `nextCursor`，不要解析游标内容。
+
 ## 7. 后端未完成时的前端开发
 
 前端可以根据 OpenAPI 和实时事件文档维护少量 fixture，但必须遵守以下规则：

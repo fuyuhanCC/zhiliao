@@ -4,12 +4,15 @@ import { createServer, type Server as HttpServer } from "node:http";
 import type { ClientToServerEvents, CommandAck, ServerToClientEvents } from "@zhiliao/shared";
 import { Server } from "socket.io";
 import { io as createClient, type Socket as ClientSocket } from "socket.io-client";
+import request from "supertest";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { createApp } from "../app.js";
 import { SESSION_COOKIE_NAME } from "../modules/auth/session.js";
+import { MemoryChatStore } from "../stores/memory/chat-store.js";
 import { MemoryRoomStore } from "../stores/memory/room-store.js";
 import { MemorySessionStore } from "../stores/memory/session-store.js";
+import { MemorySpeechTurnStore } from "../stores/memory/speech-turn-store.js";
 import type { RoomSnapshot } from "../stores/room-store.js";
 import type { UserSession } from "../stores/session-store.js";
 import { createRoomSnapshot } from "../test/room-fixture.js";
@@ -132,6 +135,8 @@ describe("realtime gateway", () => {
     const roomId = "room_integration";
     const sessionStore = new MemorySessionStore();
     const roomStore = new MemoryRoomStore();
+    const chatStore = new MemoryChatStore();
+    const speechTurnStore = new MemorySpeechTurnStore();
     const speakerSession = createSession(1, "zhihu");
     const guestSession = createSession(2, "guest");
     sessionStore.save(speakerSession);
@@ -141,6 +146,8 @@ describe("realtime gateway", () => {
     const app = createApp({
       sessionStore,
       roomStore,
+      chatStore,
+      speechTurnStore,
       zhihuOAuthService: null,
       rtcCredentialService: null,
       sessionSecret,
@@ -154,6 +161,8 @@ describe("realtime gateway", () => {
     gateway = registerRealtimeGateway(ioServer, {
       sessionStore,
       roomStore,
+      chatStore,
+      speechTurnStore,
       sessionSecret,
       disconnectGraceMilliseconds: 20,
     });
@@ -235,14 +244,51 @@ describe("realtime gateway", () => {
     expect(retriedChatAck).toEqual(chatAck);
     await new Promise((resolve) => setImmediate(resolve));
     expect(chatBroadcastCount).toBe(1);
+
+    const releaseAck = await new Promise<CommandAck>((resolve) => {
+      speaker.emit(
+        "speaker:release",
+        {
+          requestId: "release-speaker",
+          roomId,
+          speechTurnId: acquired.data.speechTurnId,
+          reason: "user_finished",
+        },
+        resolve,
+      );
+    });
+    expect(releaseAck.ok).toBe(true);
+
+    const messages = await request(app).get(`/api/v1/rooms/${roomId}/messages`);
+    expect(messages.body).toMatchObject({
+      items: [{ clientMessageId: "client-message-one", content: "我赞同这个观点" }],
+      nextCursor: null,
+    });
+    const speechTurns = await request(app).get(`/api/v1/rooms/${roomId}/speech-turns`);
+    expect(speechTurns.body).toMatchObject({
+      items: [
+        {
+          speechTurnId: acquired.data.speechTurnId,
+          endedAt: expect.any(String),
+          releaseReason: "user_finished",
+          likeCount: 1,
+          transcript: { status: "pending" },
+        },
+      ],
+      transcriptVersion: 0,
+    });
   });
 
   it("rejects a Socket.IO connection without a signed session cookie", async () => {
     const sessionStore = new MemorySessionStore();
     const roomStore = new MemoryRoomStore();
+    const chatStore = new MemoryChatStore();
+    const speechTurnStore = new MemorySpeechTurnStore();
     const app = createApp({
       sessionStore,
       roomStore,
+      chatStore,
+      speechTurnStore,
       zhihuOAuthService: null,
       rtcCredentialService: null,
       sessionSecret,
@@ -253,7 +299,13 @@ describe("realtime gateway", () => {
     ioServer = new Server<ClientToServerEvents, ServerToClientEvents>(httpServer, {
       path: "/socket.io",
     });
-    gateway = registerRealtimeGateway(ioServer, { sessionStore, roomStore, sessionSecret });
+    gateway = registerRealtimeGateway(ioServer, {
+      sessionStore,
+      roomStore,
+      chatStore,
+      speechTurnStore,
+      sessionSecret,
+    });
     const port = await listen(httpServer);
     const socket = createClient(`http://127.0.0.1:${port}`, {
       path: "/socket.io",

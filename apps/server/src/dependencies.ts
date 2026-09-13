@@ -2,15 +2,21 @@ import { env } from "./config/env.js";
 import { HttpZhihuOAuthClient } from "./modules/auth/zhihu-oauth-client.js";
 import { ZhihuOAuthService } from "./modules/auth/zhihu-oauth-service.js";
 import { RtcCredentialService } from "./modules/rtc-credential/rtc-credential-service.js";
+import { MemoryChatStore } from "./stores/memory/chat-store.js";
 import { MemoryOAuthAttemptStore } from "./stores/memory/oauth-attempt-store.js";
 import { MemoryRoomStore } from "./stores/memory/room-store.js";
 import { MemorySessionStore } from "./stores/memory/session-store.js";
+import { MemorySpeechTurnStore } from "./stores/memory/speech-turn-store.js";
+import type { ChatStore } from "./stores/chat-store.js";
 import type { RoomStore } from "./stores/room-store.js";
 import type { SessionStore } from "./stores/session-store.js";
+import type { SpeechTurnStore } from "./stores/speech-turn-store.js";
 
 export interface AppDependencies {
   sessionStore: SessionStore;
   roomStore: RoomStore;
+  chatStore: ChatStore;
+  speechTurnStore: SpeechTurnStore;
   zhihuOAuthService: ZhihuOAuthService | null;
   rtcCredentialService: RtcCredentialService | null;
   sessionSecret: string;
@@ -21,11 +27,15 @@ export interface AppDependencies {
 export function createAppDependencies(): AppDependencies {
   const sessionStore = new MemorySessionStore();
   const roomStore = new MemoryRoomStore();
+  const chatStore = new MemoryChatStore();
+  const speechTurnStore = new MemorySpeechTurnStore();
   const oauthAttemptStore = new MemoryOAuthAttemptStore();
 
   return {
     sessionStore,
     roomStore,
+    chatStore,
+    speechTurnStore,
     zhihuOAuthService: env.zhihuOAuth
       ? new ZhihuOAuthService({
           appId: env.zhihuOAuth.appId,

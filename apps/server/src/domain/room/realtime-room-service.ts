@@ -19,7 +19,9 @@ import {
 } from "@zhiliao/shared";
 import type { components } from "@zhiliao/shared/openapi";
 
+import type { ChatStore } from "../../stores/chat-store.js";
 import type { RoomSnapshot, RoomStore } from "../../stores/room-store.js";
+import type { SpeechTurnStore } from "../../stores/speech-turn-store.js";
 
 type ChatMessage = components["schemas"]["ChatMessage"];
 type ReleaseReason = components["schemas"]["ReleaseReason"];
@@ -68,6 +70,8 @@ interface SpeakerTimers {
 
 export interface RealtimeRoomServiceOptions {
   roomStore: RoomStore;
+  chatStore: ChatStore;
+  speechTurnStore: SpeechTurnStore;
   emit: (event: RealtimeStateEvent) => void;
   now?: () => Date;
   generateId?: () => string;
@@ -95,7 +99,6 @@ export class RealtimeRoomService {
   private readonly participants = new Map<string, Map<string, RoomParticipant>>();
   private readonly queuedUsers = new Map<string, Map<string, PublicUser>>();
   private readonly likedSessions = new Map<string, Set<string>>();
-  private readonly likeCounts = new Map<string, number>();
   private readonly speakerTimers = new Map<string, SpeakerTimers>();
   private readonly cooldownTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly disconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -351,6 +354,15 @@ export class RealtimeRoomService {
       acquiredAt: acquiredAt.toISOString(),
       expiresAt: new Date(acquiredAt.getTime() + this.speechLimitMilliseconds).toISOString(),
     };
+    this.options.speechTurnStore.create(roomId, {
+      speechTurnId: lock.speechTurnId,
+      speaker: structuredClone(participant.user),
+      startedAt: lock.acquiredAt,
+      endedAt: null,
+      releaseReason: null,
+      likeCount: 0,
+      transcript: null,
+    });
     snapshot.data.speakerLock = lock;
     this.publishChange(snapshot.data, "speaker:changed", {
       speakerLock: structuredClone(lock),
@@ -407,6 +419,7 @@ export class RealtimeRoomService {
       content,
       createdAt: this.now().toISOString(),
     };
+    this.options.chatStore.append(roomId, message);
     this.publishChange(snapshot.data, "chat:created", message);
     return this.success(snapshot.data, emptyData);
   }
@@ -431,14 +444,19 @@ export class RealtimeRoomService {
     }
     likedSessions.add(participant.sessionId);
     this.likedSessions.set(speechTurnId, likedSessions);
-    const totalLikes = (this.likeCounts.get(speechTurnId) ?? 0) + 1;
-    this.likeCounts.set(speechTurnId, totalLikes);
+    const speechTurn = this.options.speechTurnStore.get(roomId, speechTurnId);
+    if (!speechTurn) {
+      likedSessions.delete(participant.sessionId);
+      return this.failure(snapshot.data, "NO_ACTIVE_SPEAKER", "当前发言已结束");
+    }
+    speechTurn.likeCount += 1;
+    this.options.speechTurnStore.update(roomId, speechTurn);
 
     this.publishChange(snapshot.data, "reaction:created", {
       type: "like",
       speechTurnId,
       targetUserId: speakerLock.userId,
-      totalLikes,
+      totalLikes: speechTurn.likeCount,
     });
     return this.success(snapshot.data, emptyData);
   }
@@ -584,6 +602,20 @@ export class RealtimeRoomService {
       return;
     }
     this.clearSpeakerTimers(snapshot.room.roomId);
+    const endedAt = this.now().toISOString();
+    const speechTurn = this.options.speechTurnStore.get(snapshot.room.roomId, lock.speechTurnId);
+    if (speechTurn) {
+      speechTurn.endedAt = endedAt;
+      speechTurn.releaseReason = releaseReason;
+      speechTurn.transcript = {
+        status: "pending",
+        source: null,
+        text: null,
+        failureCode: null,
+        updatedAt: endedAt,
+      };
+      this.options.speechTurnStore.update(snapshot.room.roomId, speechTurn);
+    }
     snapshot.speakerLock = null;
     this.publishChange(snapshot, "speaker:changed", {
       speakerLock: null,
@@ -609,12 +641,11 @@ export class RealtimeRoomService {
       speechTurnId: lock.speechTurnId,
       speakerUserId: lock.userId,
       startedAt: lock.acquiredAt,
-      endedAt: this.now().toISOString(),
+      endedAt,
       releaseReason,
       transcriptStatus: "pending",
     });
     this.likedSessions.delete(lock.speechTurnId);
-    this.likeCounts.delete(lock.speechTurnId);
   }
 
   private clearCooldown(snapshot: RoomSnapshot, userId: string): void {

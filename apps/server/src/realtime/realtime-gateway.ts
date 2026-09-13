@@ -21,8 +21,10 @@ import {
   type RoomParticipant,
 } from "../domain/room/realtime-room-service.js";
 import { SESSION_COOKIE_NAME } from "../modules/auth/session.js";
+import type { ChatStore } from "../stores/chat-store.js";
 import type { RoomStore, RoomSnapshot } from "../stores/room-store.js";
 import type { SessionStore, UserSession } from "../stores/session-store.js";
+import type { SpeechTurnStore } from "../stores/speech-turn-store.js";
 
 interface InterServerEvents {}
 
@@ -58,6 +60,8 @@ interface RateWindow {
 export interface RealtimeGatewayOptions {
   sessionStore: SessionStore;
   roomStore: RoomStore;
+  chatStore: ChatStore;
+  speechTurnStore: SpeechTurnStore;
   sessionSecret: string;
   disconnectGraceMilliseconds?: number;
   speechLimitMilliseconds?: number;
@@ -187,6 +191,8 @@ export function registerRealtimeGateway(
   let isClosed = false;
   const service = new RealtimeRoomService({
     roomStore: options.roomStore,
+    chatStore: options.chatStore,
+    speechTurnStore: options.speechTurnStore,
     emit: emitStateEvent,
     now,
     ...(options.disconnectGraceMilliseconds === undefined

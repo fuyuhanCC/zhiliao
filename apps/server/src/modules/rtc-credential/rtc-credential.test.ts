@@ -3,8 +3,10 @@ import request from "supertest";
 import { describe, expect, it, vi } from "vitest";
 
 import { createApp } from "../../app.js";
+import { MemoryChatStore } from "../../stores/memory/chat-store.js";
 import { MemoryRoomStore } from "../../stores/memory/room-store.js";
 import { MemorySessionStore } from "../../stores/memory/session-store.js";
+import { MemorySpeechTurnStore } from "../../stores/memory/speech-turn-store.js";
 import { createRoomSnapshot } from "../../test/room-fixture.js";
 import { RtcCredentialService, type UserSigSigner } from "./rtc-credential-service.js";
 
@@ -43,6 +45,8 @@ function createTestApp(
   return createApp({
     sessionStore,
     roomStore,
+    chatStore: new MemoryChatStore(),
+    speechTurnStore: new MemorySpeechTurnStore(),
     zhihuOAuthService: null,
     rtcCredentialService: service,
     sessionSecret: "test-session-secret-with-at-least-32-characters",
@@ -59,6 +63,8 @@ function createFailingTestApp() {
   return createApp({
     sessionStore,
     roomStore,
+    chatStore: new MemoryChatStore(),
+    speechTurnStore: new MemorySpeechTurnStore(),
     zhihuOAuthService: null,
     rtcCredentialService: new RtcCredentialService({
       sdkAppId: 1_400_000_000,
