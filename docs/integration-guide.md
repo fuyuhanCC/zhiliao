@@ -67,6 +67,38 @@ ZHIHU_REDIRECT_URI=http://localhost:3000/api/v1/auth/zhihu/callback
 
 前端从 `GET /api/v1/auth/zhihu/authorize?returnTo=<站内路径>` 开始登录，不应自行拼装知乎授权地址，也不能接触 `app_key` 或用户 Token。当前官方文档尚未公布“获取用户信息”接口的 URL 和响应结构，因此现阶段授权成功后保留用户已有昵称与头像；知乎补充该接口后再在服务端 OAuth 网关中接入真实资料。
 
+### 3.2 多用户本地调试
+
+同时配置 `NODE_ENV=development` 和 `ENABLE_DEVELOPMENT_SESSIONS=true` 时，服务端额外注册 `POST /api/v1/auth/dev-session`，用于创建具备上麦权限的模拟知乎用户。该接口不属于正式 OpenAPI；生产环境禁止启用这个开关，也不会注册该路由。
+
+请求示例：
+
+```http
+POST /api/v1/auth/dev-session
+Content-Type: application/json
+
+{
+  "userIndex": 1,
+  "displayName": "一号测试员"
+}
+```
+
+`userIndex` 取值为 `1..99`，映射为稳定的 `dev_zhihu_<userIndex>`。在不同 Chrome Profile 中分别使用不同编号，即可获得相互隔离的 Cookie、账户和 Socket.IO 身份。同一 Profile 的多个标签页共享会话，不能用于模拟不同用户。
+
+可以直接在每个 Profile 的浏览器控制台执行：
+
+```js
+await fetch("/api/v1/auth/dev-session", {
+  method: "POST",
+  credentials: "include",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ userIndex: 1, displayName: "一号测试员" }),
+});
+location.reload();
+```
+
+修改 `userIndex` 后可模拟最多 6 名麦上用户和第 7 名排队用户。这个会话只跳过 OAuth 登录过程，麦位、发言锁、冷却、知豆和打赏仍走真实后端规则。
+
 ## 4. 分别启动
 
 后端开发者：

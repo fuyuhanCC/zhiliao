@@ -36,6 +36,26 @@ export function createGuestSession(displayName?: string): UserSession {
   };
 }
 
+export function createDevelopmentZhihuSession(
+  userIndex: number,
+  displayName?: string,
+): UserSession {
+  const now = new Date().toISOString();
+  return {
+    sessionId: randomUUID(),
+    user: {
+      userId: `dev_zhihu_${userIndex}`,
+      identityType: "zhihu",
+      displayName: displayName ?? `测试知友 ${userIndex}`,
+      avatarUrl: null,
+      level: 1,
+      levelTitle: "蛰伏",
+    },
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
 export function toSessionResponse(
   session: UserSession,
   accountStore: AccountStore,

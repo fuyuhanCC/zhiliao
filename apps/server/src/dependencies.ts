@@ -37,6 +37,7 @@ export interface AppDependencies {
   transcriptService?: TranscriptService | null;
   summaryService?: SummaryService;
   roomEventBus?: RoomEventBus;
+  enableDevelopmentSessions?: boolean;
   sessionSecret: string;
   secureCookies: boolean;
   webOrigin: string;
@@ -84,6 +85,7 @@ export function createAppDependencies(): AppDependencies {
     transcriptService,
     summaryService,
     roomEventBus,
+    enableDevelopmentSessions: env.enableDevelopmentSessions,
     hotTopicRoomService: new HotTopicRoomService({
       roomStore,
       client: hotListClient,

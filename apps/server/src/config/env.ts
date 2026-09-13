@@ -20,6 +20,7 @@ const optionalUrl = z.preprocess(
 const envSchema = z
   .object({
     NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
+    ENABLE_DEVELOPMENT_SESSIONS: z.enum(["true", "false"]).default("false"),
     PORT: z.coerce.number().int().positive().default(3000),
     WEB_ORIGIN: z.string().url().default("http://localhost:5173"),
     SESSION_SECRET: z.string().min(32).default(developmentSessionSecret),
@@ -107,12 +108,22 @@ const envSchema = z
         path: ["SESSION_SECRET"],
       });
     }
+
+    if (value.NODE_ENV === "production" && value.ENABLE_DEVELOPMENT_SESSIONS === "true") {
+      context.addIssue({
+        code: "custom",
+        message: "生产环境禁止启用开发会话",
+        path: ["ENABLE_DEVELOPMENT_SESSIONS"],
+      });
+    }
   });
 
 const parsedEnv = envSchema.parse(process.env);
 
 export const env = {
   nodeEnv: parsedEnv.NODE_ENV,
+  enableDevelopmentSessions:
+    parsedEnv.NODE_ENV === "development" && parsedEnv.ENABLE_DEVELOPMENT_SESSIONS === "true",
   port: parsedEnv.PORT,
   webOrigin: parsedEnv.WEB_ORIGIN,
   sessionSecret: parsedEnv.SESSION_SECRET,

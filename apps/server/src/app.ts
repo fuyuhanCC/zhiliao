@@ -76,6 +76,7 @@ export function createApp(dependencies: AppDependencies = createAppDependencies(
       accountStore: dependencies.accountStore,
       secureCookies: dependencies.secureCookies,
       zhihuOAuthService: dependencies.zhihuOAuthService,
+      enableDevelopmentSessions: dependencies.enableDevelopmentSessions ?? false,
     }),
   );
   app.use(

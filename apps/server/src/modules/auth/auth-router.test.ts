@@ -8,7 +8,7 @@ import { MemoryRoomStore } from "../../stores/memory/room-store.js";
 import { MemorySessionStore } from "../../stores/memory/session-store.js";
 import { MemorySpeechTurnStore } from "../../stores/memory/speech-turn-store.js";
 
-function createTestApp() {
+function createTestApp(enableDevelopmentSessions = false) {
   return createApp({
     sessionStore: new MemorySessionStore(),
     accountStore: new MemoryAccountStore(),
@@ -20,6 +20,7 @@ function createTestApp() {
     sessionSecret: "test-session-secret-with-at-least-32-characters",
     secureCookies: false,
     webOrigin: "http://localhost:5173",
+    enableDevelopmentSessions,
   });
 }
 
@@ -75,5 +76,38 @@ describe("auth routes", () => {
 
     expect(response.status).toBe(401);
     expect(response.body.error.code).toBe("AUTH_REQUIRED");
+  });
+
+  it("creates isolated Zhihu-capable development sessions when explicitly enabled", async () => {
+    const firstUser = request.agent(createTestApp(true));
+    const created = await firstUser
+      .post("/api/v1/auth/dev-session")
+      .send({ userIndex: 1, displayName: "一号测试员" });
+
+    expect(created.status).toBe(201);
+    expect(created.body).toMatchObject({
+      user: {
+        userId: "dev_zhihu_1",
+        identityType: "zhihu",
+        displayName: "一号测试员",
+      },
+      account: { coinBalance: 100 },
+      permissions: {
+        canCreateRoom: true,
+        canRequestSeat: true,
+        canSpeak: true,
+      },
+    });
+    const restored = await firstUser.get("/api/v1/auth/session");
+    expect(restored.body.user.userId).toBe("dev_zhihu_1");
+  });
+
+  it("does not register the development session route by default", async () => {
+    const response = await request(createTestApp())
+      .post("/api/v1/auth/dev-session")
+      .send({ userIndex: 1 });
+
+    expect(response.status).toBe(404);
+    expect(response.body.error.code).toBe("ROUTE_NOT_FOUND");
   });
 });

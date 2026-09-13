@@ -11,6 +11,7 @@ import {
 } from "./oauth-attempt-cookie.js";
 import {
   clearSessionCookie,
+  createDevelopmentZhihuSession,
   createGuestSession,
   readSession,
   setSessionCookie,
@@ -21,6 +22,13 @@ import { InvalidOAuthAttemptError, type ZhihuOAuthService } from "./zhihu-oauth-
 
 const guestSessionBodySchema = z
   .object({
+    displayName: z.string().trim().min(1).max(20).optional(),
+  })
+  .strict();
+
+const developmentSessionBodySchema = z
+  .object({
+    userIndex: z.number().int().min(1).max(99),
     displayName: z.string().trim().min(1).max(20).optional(),
   })
   .strict();
@@ -43,10 +51,36 @@ export interface AuthRouterOptions {
   accountStore: AccountStore;
   secureCookies: boolean;
   zhihuOAuthService: ZhihuOAuthService | null;
+  enableDevelopmentSessions?: boolean;
 }
 
 export function createAuthRouter(options: AuthRouterOptions): Router {
   const router = Router();
+
+  if (options.enableDevelopmentSessions) {
+    router.post("/dev-session", (request, response) => {
+      const parsedBody = developmentSessionBodySchema.safeParse(request.body ?? {});
+      if (!parsedBody.success) {
+        sendApiError(response, 400, "VALIDATION_ERROR", "请求参数不合法", {
+          issues: parsedBody.error.issues,
+        });
+        return;
+      }
+
+      const existingSession = readSession(request, options.sessionStore);
+      if (existingSession) {
+        options.sessionStore.delete(existingSession.sessionId);
+      }
+      const session = createDevelopmentZhihuSession(
+        parsedBody.data.userIndex,
+        parsedBody.data.displayName,
+      );
+      options.sessionStore.save(session);
+      options.accountStore.ensure(session.user.userId);
+      setSessionCookie(response, session.sessionId, options.secureCookies);
+      response.status(201).json(toSessionResponse(session, options.accountStore));
+    });
+  }
 
   router.post("/guest", (request, response) => {
     const parsedBody = guestSessionBodySchema.safeParse(request.body ?? {});
