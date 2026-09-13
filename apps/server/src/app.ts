@@ -3,16 +3,22 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 
 import { APP_VERSION } from "@zhiliao/shared";
+import cookieParser from "cookie-parser";
 import cors from "cors";
 import express, { type Express } from "express";
 import helmet from "helmet";
 
 import { env } from "./config/env.js";
+import { createAppDependencies, type AppDependencies } from "./dependencies.js";
+import { sendApiError } from "./http/api-error.js";
+import { createAuthRouter } from "./modules/auth/auth-router.js";
+import { createRoomRouter } from "./modules/room/room-router.js";
+import { createRtcCredentialRouter } from "./modules/rtc-credential/rtc-credential-router.js";
 
 const publicDirectory = path.resolve(import.meta.dirname, "../public");
 const webEntryFile = path.join(publicDirectory, "index.html");
 
-export function createApp(): Express {
+export function createApp(dependencies: AppDependencies = createAppDependencies()): Express {
   const app = express();
 
   app.disable("x-powered-by");
@@ -23,6 +29,7 @@ export function createApp(): Express {
   );
   app.use(cors({ origin: env.webOrigin, credentials: true }));
   app.use(express.json({ limit: "1mb" }));
+  app.use(cookieParser(dependencies.sessionSecret));
 
   app.use((_request, response, next) => {
     const requestId = randomUUID();
@@ -39,15 +46,32 @@ export function createApp(): Express {
     });
   });
 
+  app.use(
+    "/api/v1/auth",
+    createAuthRouter({
+      sessionStore: dependencies.sessionStore,
+      secureCookies: dependencies.secureCookies,
+    }),
+  );
+  app.use(
+    "/api/v1",
+    createRoomRouter({
+      sessionStore: dependencies.sessionStore,
+      roomStore: dependencies.roomStore,
+      webOrigin: dependencies.webOrigin,
+    }),
+  );
+  app.use(
+    "/api/v1",
+    createRtcCredentialRouter({
+      sessionStore: dependencies.sessionStore,
+      roomStore: dependencies.roomStore,
+      credentialService: dependencies.rtcCredentialService,
+    }),
+  );
+
   app.use("/api", (_request, response) => {
-    response.status(404).json({
-      error: {
-        code: "ROUTE_NOT_FOUND",
-        message: "接口不存在",
-        details: {},
-        requestId: response.locals.requestId,
-      },
-    });
+    sendApiError(response, 404, "ROUTE_NOT_FOUND", "接口不存在");
   });
 
   if (existsSync(webEntryFile)) {

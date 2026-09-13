@@ -872,6 +872,7 @@ export interface operations {
                     "application/json": components["schemas"]["RoomPage"];
                 };
             };
+            400: components["responses"]["BadRequest"];
         };
     };
     createRoom: {
@@ -899,6 +900,7 @@ export interface operations {
                 };
             };
             400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             429: components["responses"]["RateLimited"];
         };
@@ -926,6 +928,7 @@ export interface operations {
                     "application/json": components["schemas"]["RoomSnapshot"];
                 };
             };
+            400: components["responses"]["BadRequest"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
         };
@@ -958,10 +961,12 @@ export interface operations {
                     "application/json": components["schemas"]["RtcCredentials"];
                 };
             };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             429: components["responses"]["RateLimited"];
+            502: components["responses"]["UpstreamFailure"];
         };
     };
     listRoomMessages: {

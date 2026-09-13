@@ -93,7 +93,7 @@ HTTP 成功响应直接返回资源或结果，不额外套 `data`：
 | 409  | `ALREADY_SEATED`、`SPEAKER_LOCKED`、`COOLDOWN_ACTIVE`                         | 当前状态冲突       |
 | 413  | `AUDIO_TOO_LARGE`                                                             | 音频超过上限       |
 | 429  | `RATE_LIMITED`                                                                | 请求过于频繁       |
-| 502  | `ZHIHU_API_UNAVAILABLE`、`ASR_FAILED`、`SUMMARY_FAILED`                       | 外部服务失败       |
+| 502  | `TRTC_UNAVAILABLE`、`ZHIHU_API_UNAVAILABLE`、`ASR_FAILED`、`SUMMARY_FAILED`   | 外部服务失败       |
 
 ## 权限摘要
 
