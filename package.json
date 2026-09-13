@@ -1,0 +1,26 @@
+{
+  "name": "zhiliao",
+  "version": "0.1.0",
+  "private": true,
+  "description": "知了——面向知乎用户的实时语音辩论 Web 产品",
+  "packageManager": "pnpm@11.19.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "pnpm run build:shared && concurrently -k -n shared,web,server -c yellow,cyan,magenta \"pnpm --filter @zhiliao/shared dev\" \"pnpm --filter @zhiliao/web dev\" \"pnpm --filter @zhiliao/server dev\"",
+    "build:shared": "pnpm --filter @zhiliao/shared build",
+    "build": "pnpm run build:shared && pnpm --filter @zhiliao/web build && pnpm --filter @zhiliao/server build",
+    "start": "node apps/server/dist/index.js",
+    "typecheck": "pnpm run build:shared && pnpm --filter @zhiliao/web typecheck && pnpm --filter @zhiliao/server typecheck",
+    "test": "pnpm run build:shared && pnpm -r --if-present test",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "pnpm": "^11.19.0",
+    "prettier": "^3.6.2"
+  }
+}

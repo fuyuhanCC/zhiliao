@@ -1,0 +1,44 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+build/
+apps/server/public/
+.vite/
+.next/
+.turbo/
+*.tsbuildinfo
+
+# Tests and coverage
+coverage/
+playwright-report/
+test-results/
+
+# Runtime data
+logs/
+*.log
+tmp/
+temp/
+uploads/
+recordings/
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+service-account*.json
+
+# Editors and operating systems
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+
+# Package-manager caches
+.npm/
+.pnpm-store/
+.yarn/

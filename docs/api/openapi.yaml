@@ -1,0 +1,1266 @@
+openapi: 3.1.0
+info:
+  title: 知了 REST API
+  version: 0.1.0
+  description: |
+    知了 MVP 的 HTTP 接口契约。房间内的麦位、排队、发言锁、公屏和在线状态
+    使用 Socket.IO，详见 realtime-events.md。
+servers:
+  - url: /api/v1
+    description: 与 Web 同源部署
+tags:
+  - name: Health
+  - name: Auth
+  - name: Topics
+  - name: Rooms
+  - name: RTC
+  - name: Transcripts
+  - name: Summary
+
+paths:
+  /health:
+    get:
+      tags: [Health]
+      operationId: getHealth
+      summary: 服务健康检查
+      security: []
+      responses:
+        "200":
+          description: 服务可用
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+
+  /auth/guest:
+    post:
+      tags: [Auth]
+      operationId: createGuestSession
+      summary: 创建或恢复游客会话
+      description: |
+        若请求已携带有效会话，则返回当前会话；否则创建本设备游客身份并写入
+        HttpOnly Cookie。displayName 为空时由服务端生成随机昵称。
+      security: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                displayName:
+                  type: string
+                  minLength: 1
+                  maxLength: 20
+      responses:
+        "200":
+          description: 已有会话
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionResponse"
+        "201":
+          description: 新建游客会话
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /auth/session:
+    get:
+      tags: [Auth]
+      operationId: getSession
+      summary: 获取当前会话
+      responses:
+        "200":
+          description: 当前会话
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /auth/zhihu/authorize:
+    get:
+      tags: [Auth]
+      operationId: authorizeZhihu
+      summary: 开始知乎 OAuth 授权
+      description: 创建一次性 OAuth 尝试 Cookie 后跳转到知乎授权页。
+      parameters:
+        - name: returnTo
+          in: query
+          required: false
+          description: OAuth 成功后返回的站内路径，不接受外部 URL。
+          schema:
+            type: string
+            maxLength: 500
+            default: /
+      responses:
+        "302":
+          description: 跳转知乎授权页
+          headers:
+            Location:
+              schema:
+                type: string
+                format: uri
+
+  /auth/zhihu/callback:
+    get:
+      tags: [Auth]
+      operationId: handleZhihuCallback
+      summary: 知乎 OAuth 回调
+      description: 服务端换取 Token 和用户资料，将游客会话升级为知乎用户会话后跳转回 Web。
+      security: []
+      parameters:
+        - name: authorization_code
+          in: query
+          required: true
+          description: 知乎 OAuth 回调返回的授权码。
+          schema:
+            type: string
+        - name: state
+          in: query
+          required: false
+          description: 若知乎授权服务回传该字段则必须校验。
+          schema:
+            type: string
+      responses:
+        "302":
+          description: 授权完成后跳转站内 returnTo
+          headers:
+            Location:
+              schema:
+                type: string
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "502":
+          $ref: "#/components/responses/UpstreamFailure"
+
+  /auth/logout:
+    post:
+      tags: [Auth]
+      operationId: logout
+      summary: 退出当前登录并清除会话
+      responses:
+        "204":
+          description: 已退出
+
+  /topics/hot:
+    get:
+      tags: [Topics]
+      operationId: listHotTopics
+      summary: 获取知乎热榜话题
+      description: 服务端缓存知乎热榜；上游不可用时返回预置话题，并标记 fallback。
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/PageLimit"
+      responses:
+        "200":
+          description: 热榜话题页
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HotTopicPage"
+        "502":
+          $ref: "#/components/responses/UpstreamFailure"
+
+  /topics/resolve:
+    post:
+      tags: [Topics]
+      operationId: resolveZhihuQuestion
+      summary: 解析知乎问题作为房间话题
+      description: |
+        根据知乎问题 URL 获取可用的回答摘要和页面元数据。知乎问题回答 API 不保证返回
+        问题标题，因此 title 可能为空，前端必须允许用户补充标题。
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [questionUrl]
+              properties:
+                questionUrl:
+                  type: string
+                  format: uri
+      responses:
+        "200":
+          description: 可用于创建房间的话题草稿
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ResolvedQuestionTopic"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "502":
+          $ref: "#/components/responses/UpstreamFailure"
+
+  /rooms:
+    get:
+      tags: [Rooms]
+      operationId: listRooms
+      summary: 获取可见房间列表
+      security: []
+      parameters:
+        - name: type
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/RoomType"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/PageLimit"
+      responses:
+        "200":
+          description: 房间列表页
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoomPage"
+    post:
+      tags: [Rooms]
+      operationId: createRoom
+      summary: 创建自定义话题房间
+      description: 仅知乎登录用户可创建。热榜房由系统生成，不通过此接口创建。
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateRoomRequest"
+      responses:
+        "201":
+          description: 房间创建成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateRoomResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /rooms/{roomId}:
+    get:
+      tags: [Rooms]
+      operationId: getRoom
+      summary: 获取房间详情和当前快照
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/RoomId"
+        - $ref: "#/components/parameters/InviteCode"
+      responses:
+        "200":
+          description: 房间详情
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoomSnapshot"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /rooms/{roomId}/rtc-credentials:
+    post:
+      tags: [RTC]
+      operationId: createRtcCredentials
+      summary: 获取短期 TRTC 进房凭证
+      description: |
+        游客可获取旁听凭证；只有服务端确认已经占用麦位的知乎用户才获得发布音频权限。
+        SecretKey 永不返回前端。
+      parameters:
+        - $ref: "#/components/parameters/RoomId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                inviteCode:
+                  type: string
+                  minLength: 6
+                  maxLength: 100
+      responses:
+        "200":
+          description: TRTC 凭证
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RtcCredentials"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /rooms/{roomId}/messages:
+    get:
+      tags: [Rooms]
+      operationId: listRoomMessages
+      summary: 分页获取公屏历史
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/RoomId"
+        - $ref: "#/components/parameters/InviteCode"
+        - $ref: "#/components/parameters/Cursor"
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 30
+      responses:
+        "200":
+          description: 公屏消息页
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChatMessagePage"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /rooms/{roomId}/speech-turns:
+    get:
+      tags: [Transcripts]
+      operationId: listSpeechTurns
+      summary: 获取辩论日志的发言记录
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/RoomId"
+        - $ref: "#/components/parameters/InviteCode"
+        - $ref: "#/components/parameters/Cursor"
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+      responses:
+        "200":
+          description: 发言记录页
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SpeechTurnPage"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /rooms/{roomId}/speech-turns/{speechTurnId}/audio:
+    post:
+      tags: [Transcripts]
+      operationId: uploadSpeechAudio
+      summary: 上传本人一次发言的音频片段并启动转写
+      description: |
+        仅该 SpeechTurn 的发言者可上传。音频只用于转写，处理后删除，不提供录音回放。
+        MVP 建议限制为 20 MiB、最长 120 秒。
+      parameters:
+        - $ref: "#/components/parameters/RoomId"
+        - $ref: "#/components/parameters/SpeechTurnId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [audio, durationMs]
+              properties:
+                audio:
+                  type: string
+                  format: binary
+                durationMs:
+                  type: integer
+                  minimum: 1
+                  maximum: 120000
+      responses:
+        "202":
+          description: 已进入转写队列
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TranscriptStatusResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "413":
+          description: 音频过大
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /rooms/{roomId}/speech-turns/{speechTurnId}/manual-transcript:
+    put:
+      tags: [Transcripts]
+      operationId: putManualTranscript
+      summary: 提交本人发言的一句话摘要
+      description: ASR 不可用或失败时的兜底；仅该 SpeechTurn 的发言者可提交。
+      parameters:
+        - $ref: "#/components/parameters/RoomId"
+        - $ref: "#/components/parameters/SpeechTurnId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [text]
+              properties:
+                text:
+                  type: string
+                  minLength: 1
+                  maxLength: 200
+      responses:
+        "200":
+          description: 已保存手填摘要
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Transcript"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /rooms/{roomId}/summary:
+    get:
+      tags: [Summary]
+      operationId: getRoomSummary
+      summary: 获取当前辩论总结
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/RoomId"
+        - $ref: "#/components/parameters/InviteCode"
+      responses:
+        "200":
+          description: 总结状态与结果
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SummaryResource"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /rooms/{roomId}/summary/generate:
+    post:
+      tags: [Summary]
+      operationId: generateRoomSummary
+      summary: 按当前发言记录生成或刷新辩论总结
+      description: |
+        房间内用户打开辩论日志时调用。服务端以 transcriptVersion 去重；没有新增记录时
+        直接复用已有总结，避免重复消耗直答额度。
+      parameters:
+        - $ref: "#/components/parameters/RoomId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                inviteCode:
+                  type: string
+                  minLength: 6
+                  maxLength: 100
+      responses:
+        "200":
+          description: 当前版本已有可复用总结
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SummaryResource"
+        "202":
+          description: 已开始生成
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SummaryResource"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "502":
+          $ref: "#/components/responses/UpstreamFailure"
+
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: zhiliao_session
+
+  parameters:
+    RoomId:
+      name: roomId
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+    SpeechTurnId:
+      name: speechTurnId
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      schema:
+        type: string
+    PageLimit:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 50
+        default: 20
+    InviteCode:
+      name: inviteCode
+      in: query
+      required: false
+      description: 邀请制房间的访问码。
+      schema:
+        type: string
+        minLength: 6
+        maxLength: 100
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+        minLength: 8
+        maxLength: 100
+
+  responses:
+    BadRequest:
+      description: 请求参数不合法
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Unauthorized:
+      description: 缺少或失效会话
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Forbidden:
+      description: 当前身份无权执行操作
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    NotFound:
+      description: 资源不存在或已回收
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    RateLimited:
+      description: 请求过于频繁
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    UpstreamFailure:
+      description: 外部服务不可用
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+
+  schemas:
+    HealthResponse:
+      type: object
+      additionalProperties: false
+      required: [status, version, serverTime]
+      properties:
+        status:
+          type: string
+          const: ok
+        version:
+          type: string
+        serverTime:
+          type: string
+          format: date-time
+
+    IdentityType:
+      type: string
+      enum: [guest, zhihu]
+
+    PublicUser:
+      type: object
+      additionalProperties: false
+      required: [userId, identityType, displayName, avatarUrl]
+      properties:
+        userId:
+          type: string
+        identityType:
+          $ref: "#/components/schemas/IdentityType"
+        displayName:
+          type: string
+        avatarUrl:
+          type: [string, "null"]
+          format: uri
+
+    SessionResponse:
+      type: object
+      additionalProperties: false
+      required: [user, permissions]
+      properties:
+        user:
+          $ref: "#/components/schemas/PublicUser"
+        permissions:
+          type: object
+          additionalProperties: false
+          required: [canCreateRoom, canRequestSeat, canSpeak]
+          properties:
+            canCreateRoom:
+              type: boolean
+            canRequestSeat:
+              type: boolean
+            canSpeak:
+              type: boolean
+
+    TopicSource:
+      type: string
+      enum: [zhihu_hot, zhihu_question, manual]
+
+    Topic:
+      type: object
+      additionalProperties: false
+      required: [source, title, zhihuQuestionId, zhihuUrl, excerpt, imageUrl, answerExcerpts, hotRank]
+      properties:
+        source:
+          $ref: "#/components/schemas/TopicSource"
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+        zhihuQuestionId:
+          type: [string, "null"]
+        zhihuUrl:
+          type: [string, "null"]
+          format: uri
+        excerpt:
+          type: [string, "null"]
+          maxLength: 2000
+        imageUrl:
+          type: [string, "null"]
+          format: uri
+        answerExcerpts:
+          type: array
+          maxItems: 10
+          description: 知乎问题回答摘要；热榜文章或手动话题可为空数组。
+          items:
+            $ref: "#/components/schemas/AnswerExcerpt"
+        hotRank:
+          type: [integer, "null"]
+          minimum: 1
+
+    AnswerExcerpt:
+      type: object
+      additionalProperties: false
+      required: [url, summary]
+      properties:
+        url:
+          type: string
+          format: uri
+        summary:
+          type: string
+
+    ResolvedQuestionTopic:
+      type: object
+      additionalProperties: false
+      required:
+        - source
+        - title
+        - questionUrl
+        - questionId
+        - excerpt
+        - imageUrl
+        - answerExcerpts
+        - requiresTitleInput
+      properties:
+        source:
+          type: string
+          const: zhihu_question
+        title:
+          type: [string, "null"]
+          maxLength: 200
+        questionUrl:
+          type: string
+          format: uri
+        questionId:
+          type: [string, "null"]
+        excerpt:
+          type: [string, "null"]
+          maxLength: 2000
+        imageUrl:
+          type: [string, "null"]
+          format: uri
+        answerExcerpts:
+          type: array
+          maxItems: 10
+          items:
+            $ref: "#/components/schemas/AnswerExcerpt"
+        requiresTitleInput:
+          type: boolean
+
+    HotTopicPage:
+      type: object
+      additionalProperties: false
+      required: [items, nextCursor, source, fetchedAt]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Topic"
+        nextCursor:
+          type: [string, "null"]
+        source:
+          type: string
+          enum: [zhihu, cache, fallback]
+        fetchedAt:
+          type: string
+          format: date-time
+
+    RoomType:
+      type: string
+      enum: [hot, custom]
+
+    RoomVisibility:
+      type: string
+      enum: [public, invite]
+
+    RoomStatus:
+      type: string
+      enum: [active, closing, closed]
+
+    Room:
+      type: object
+      additionalProperties: false
+      required:
+        - roomId
+        - type
+        - status
+        - visibility
+        - topic
+        - creator
+        - onlineCount
+        - seatedCount
+        - createdAt
+        - version
+      properties:
+        roomId:
+          type: string
+        type:
+          $ref: "#/components/schemas/RoomType"
+        status:
+          $ref: "#/components/schemas/RoomStatus"
+        visibility:
+          $ref: "#/components/schemas/RoomVisibility"
+        topic:
+          $ref: "#/components/schemas/Topic"
+        creator:
+          oneOf:
+            - $ref: "#/components/schemas/PublicUser"
+            - type: "null"
+        onlineCount:
+          type: integer
+          minimum: 0
+        seatedCount:
+          type: integer
+          minimum: 0
+          maximum: 6
+        createdAt:
+          type: string
+          format: date-time
+        version:
+          type: integer
+          minimum: 1
+
+    Seat:
+      type: object
+      additionalProperties: false
+      required: [seatNumber, occupant]
+      properties:
+        seatNumber:
+          type: integer
+          minimum: 1
+          maximum: 6
+        occupant:
+          oneOf:
+            - $ref: "#/components/schemas/PublicUser"
+            - type: "null"
+
+    QueueEntry:
+      type: object
+      additionalProperties: false
+      required: [position, userId, displayName, enqueuedAt]
+      properties:
+        position:
+          type: integer
+          minimum: 1
+        userId:
+          type: string
+        displayName:
+          type: string
+        enqueuedAt:
+          type: string
+          format: date-time
+
+    SpeakerLock:
+      type: object
+      additionalProperties: false
+      required: [speechTurnId, userId, seatNumber, acquiredAt, expiresAt]
+      properties:
+        speechTurnId:
+          type: string
+        userId:
+          type: string
+        seatNumber:
+          type: integer
+          minimum: 1
+          maximum: 6
+        acquiredAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+
+    Cooldown:
+      type: object
+      additionalProperties: false
+      required: [userId, expiresAt]
+      properties:
+        userId:
+          type: string
+        expiresAt:
+          type: string
+          format: date-time
+
+    RoomSnapshot:
+      type: object
+      additionalProperties: false
+      required: [room, seats, queue, speakerLock, cooldowns]
+      properties:
+        room:
+          $ref: "#/components/schemas/Room"
+        seats:
+          type: array
+          minItems: 6
+          maxItems: 6
+          items:
+            $ref: "#/components/schemas/Seat"
+        queue:
+          type: array
+          items:
+            $ref: "#/components/schemas/QueueEntry"
+        speakerLock:
+          oneOf:
+            - $ref: "#/components/schemas/SpeakerLock"
+            - type: "null"
+        cooldowns:
+          type: array
+          items:
+            $ref: "#/components/schemas/Cooldown"
+
+    RoomPage:
+      type: object
+      additionalProperties: false
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Room"
+        nextCursor:
+          type: [string, "null"]
+
+    ManualTopicInput:
+      type: object
+      additionalProperties: false
+      required: [source, title]
+      properties:
+        source:
+          type: string
+          const: manual
+        title:
+          type: string
+          minLength: 1
+          maxLength: 30
+
+    ZhihuQuestionTopicInput:
+      type: object
+      additionalProperties: false
+      required: [source, questionUrl, title]
+      properties:
+        source:
+          type: string
+          const: zhihu_question
+        questionUrl:
+          type: string
+          format: uri
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+
+    CreateRoomRequest:
+      type: object
+      additionalProperties: false
+      required: [visibility, topic]
+      properties:
+        visibility:
+          $ref: "#/components/schemas/RoomVisibility"
+        topic:
+          oneOf:
+            - $ref: "#/components/schemas/ManualTopicInput"
+            - $ref: "#/components/schemas/ZhihuQuestionTopicInput"
+          discriminator:
+            propertyName: source
+
+    CreateRoomResponse:
+      type: object
+      additionalProperties: false
+      required: [room, inviteCode, inviteUrl]
+      properties:
+        room:
+          $ref: "#/components/schemas/Room"
+        inviteCode:
+          type: [string, "null"]
+        inviteUrl:
+          type: [string, "null"]
+          format: uri
+
+    RtcRole:
+      type: string
+      enum: [audience, speaker]
+
+    RtcCredentials:
+      type: object
+      additionalProperties: false
+      required: [sdkAppId, trtcRoomId, trtcUserId, userSig, role, expiresAt]
+      properties:
+        sdkAppId:
+          type: integer
+        trtcRoomId:
+          type: string
+        trtcUserId:
+          type: string
+        userSig:
+          type: string
+        role:
+          $ref: "#/components/schemas/RtcRole"
+        expiresAt:
+          type: string
+          format: date-time
+
+    ChatMessageType:
+      type: string
+      enum: [text, system]
+
+    ChatMessage:
+      type: object
+      additionalProperties: false
+      required: [messageId, clientMessageId, type, sender, content, createdAt]
+      properties:
+        messageId:
+          type: string
+        clientMessageId:
+          type: [string, "null"]
+        type:
+          $ref: "#/components/schemas/ChatMessageType"
+        sender:
+          oneOf:
+            - $ref: "#/components/schemas/PublicUser"
+            - type: "null"
+        content:
+          type: string
+          maxLength: 500
+        createdAt:
+          type: string
+          format: date-time
+
+    ChatMessagePage:
+      type: object
+      additionalProperties: false
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ChatMessage"
+        nextCursor:
+          type: [string, "null"]
+
+    ReleaseReason:
+      type: string
+      enum: [user_finished, time_limit, seat_left, disconnected, room_closed]
+
+    TranscriptStatus:
+      type: string
+      enum: [pending, processing, ready, failed]
+
+    TranscriptSource:
+      type: string
+      enum: [asr, manual]
+
+    Transcript:
+      type: object
+      additionalProperties: false
+      required: [status, source, text, failureCode, updatedAt]
+      properties:
+        status:
+          $ref: "#/components/schemas/TranscriptStatus"
+        source:
+          oneOf:
+            - $ref: "#/components/schemas/TranscriptSource"
+            - type: "null"
+        text:
+          type: [string, "null"]
+        failureCode:
+          type: [string, "null"]
+        updatedAt:
+          type: string
+          format: date-time
+
+    SpeechTurn:
+      type: object
+      additionalProperties: false
+      required:
+        - speechTurnId
+        - speaker
+        - startedAt
+        - endedAt
+        - releaseReason
+        - likeCount
+        - transcript
+      properties:
+        speechTurnId:
+          type: string
+        speaker:
+          $ref: "#/components/schemas/PublicUser"
+        startedAt:
+          type: string
+          format: date-time
+        endedAt:
+          type: [string, "null"]
+          format: date-time
+        releaseReason:
+          oneOf:
+            - $ref: "#/components/schemas/ReleaseReason"
+            - type: "null"
+        likeCount:
+          type: integer
+          minimum: 0
+        transcript:
+          oneOf:
+            - $ref: "#/components/schemas/Transcript"
+            - type: "null"
+
+    SpeechTurnPage:
+      type: object
+      additionalProperties: false
+      required: [items, nextCursor, transcriptVersion]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/SpeechTurn"
+        nextCursor:
+          type: [string, "null"]
+        transcriptVersion:
+          type: integer
+          minimum: 0
+
+    TranscriptStatusResponse:
+      type: object
+      additionalProperties: false
+      required: [speechTurnId, status]
+      properties:
+        speechTurnId:
+          type: string
+        status:
+          $ref: "#/components/schemas/TranscriptStatus"
+
+    SummaryStatus:
+      type: string
+      enum: [empty, pending, processing, ready, failed]
+
+    SummaryViewpoint:
+      type: object
+      additionalProperties: false
+      required: [speaker, summary, speechTurnIds]
+      properties:
+        speaker:
+          $ref: "#/components/schemas/PublicUser"
+        summary:
+          type: string
+        speechTurnIds:
+          type: array
+          items:
+            type: string
+
+    SummaryTimelineItem:
+      type: object
+      additionalProperties: false
+      required: [speechTurnId, speaker, summary, startedAt]
+      properties:
+        speechTurnId:
+          type: string
+        speaker:
+          $ref: "#/components/schemas/PublicUser"
+        summary:
+          type: string
+        startedAt:
+          type: string
+          format: date-time
+
+    DebateSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - topicTitle
+        - overview
+        - viewpoints
+        - agreements
+        - disagreements
+        - openQuestions
+        - timeline
+      properties:
+        topicTitle:
+          type: string
+        overview:
+          type: string
+        viewpoints:
+          type: array
+          items:
+            $ref: "#/components/schemas/SummaryViewpoint"
+        agreements:
+          type: array
+          items:
+            type: string
+        disagreements:
+          type: array
+          items:
+            type: string
+        openQuestions:
+          type: array
+          items:
+            type: string
+        timeline:
+          type: array
+          items:
+            $ref: "#/components/schemas/SummaryTimelineItem"
+
+    SummaryResource:
+      type: object
+      additionalProperties: false
+      required:
+        - status
+        - summaryVersion
+        - sourceTranscriptVersion
+        - summary
+        - failureCode
+        - updatedAt
+      properties:
+        status:
+          $ref: "#/components/schemas/SummaryStatus"
+        summaryVersion:
+          type: integer
+          minimum: 0
+        sourceTranscriptVersion:
+          type: integer
+          minimum: 0
+        summary:
+          oneOf:
+            - $ref: "#/components/schemas/DebateSummary"
+            - type: "null"
+        failureCode:
+          type: [string, "null"]
+        updatedAt:
+          type: [string, "null"]
+          format: date-time
+
+    ErrorDetail:
+      type: object
+      additionalProperties: true
+      required: [code, message, details, requestId]
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+        details:
+          type: object
+          additionalProperties: true
+        requestId:
+          type: string
+
+    ErrorResponse:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          $ref: "#/components/schemas/ErrorDetail"
+
+security:
+  - cookieAuth: []

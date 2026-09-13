@@ -1,0 +1,7 @@
+node_modules
+dist
+apps/server/public
+coverage
+pnpm-lock.yaml
+docs/api/openapi.yaml
+packages/shared/src/generated/openapi.ts
