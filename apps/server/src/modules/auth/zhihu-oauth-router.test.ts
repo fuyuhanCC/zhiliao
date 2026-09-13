@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { createApp } from "../../app.js";
 import { MemoryChatStore } from "../../stores/memory/chat-store.js";
+import { MemoryAccountStore } from "../../stores/memory/account-store.js";
 import { MemoryOAuthAttemptStore } from "../../stores/memory/oauth-attempt-store.js";
 import { MemoryRoomStore } from "../../stores/memory/room-store.js";
 import { MemorySessionStore } from "../../stores/memory/session-store.js";
@@ -25,18 +26,21 @@ function createSuccessfulClient(): ZhihuOAuthClient {
 
 function createTestContext(client: ZhihuOAuthClient = createSuccessfulClient(), now?: () => Date) {
   const sessionStore = new MemorySessionStore();
+  const accountStore = new MemoryAccountStore();
   const oauthService = new ZhihuOAuthService({
     appId: "zhihu-app-id",
     redirectUri: "http://localhost:3000/api/v1/auth/zhihu/callback",
     webOrigin: "http://localhost:5173",
     attemptTtlSeconds: 600,
     attemptStore: new MemoryOAuthAttemptStore(),
+    accountStore,
     sessionStore,
     client,
     ...(now ? { now } : {}),
   });
   const app = createApp({
     sessionStore,
+    accountStore,
     roomStore: new MemoryRoomStore(),
     chatStore: new MemoryChatStore(),
     speechTurnStore: new MemorySpeechTurnStore(),
@@ -47,7 +51,7 @@ function createTestContext(client: ZhihuOAuthClient = createSuccessfulClient(), 
     webOrigin: "http://localhost:5173",
   });
 
-  return { app, client };
+  return { accountStore, app, client };
 }
 
 async function beginAuthorization(agent: ReturnType<typeof request.agent>, returnTo = "/") {
@@ -90,10 +94,11 @@ describe("Zhihu OAuth routes", () => {
   });
 
   it("upgrades the same session and redirects only to an internal return path", async () => {
-    const { app, client } = createTestContext();
+    const { accountStore, app, client } = createTestContext();
     const agent = request.agent(app);
     const { state } = await beginAuthorization(agent, "/rooms/room_123?inviteCode=abc123");
     const guestSession = await agent.get("/api/v1/auth/session").expect(200);
+    accountStore.awardLikeExperience(guestSession.body.user.userId);
 
     const callback = await agent
       .get("/api/v1/auth/zhihu/callback")
@@ -111,6 +116,12 @@ describe("Zhihu OAuth routes", () => {
       displayName: guestSession.body.user.displayName,
     });
     expect(upgradedSession.body.user.userId).not.toBe(guestSession.body.user.userId);
+    expect(upgradedSession.body.account).toMatchObject({
+      coinBalance: 100,
+      experience: 1,
+      level: 1,
+      levelTitle: "蛰伏",
+    });
     expect(JSON.stringify(upgradedSession.body)).not.toContain("oauth-access-token");
     expect(upgradedSession.body.permissions).toEqual({
       canCreateRoom: true,
@@ -198,6 +209,7 @@ describe("Zhihu OAuth routes", () => {
   it("reports that OAuth is unavailable when credentials are missing", async () => {
     const app = createApp({
       sessionStore: new MemorySessionStore(),
+      accountStore: new MemoryAccountStore(),
       roomStore: new MemoryRoomStore(),
       chatStore: new MemoryChatStore(),
       speechTurnStore: new MemorySpeechTurnStore(),

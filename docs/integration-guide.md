@@ -134,11 +134,17 @@ socket.emit(
 
 连接 Socket.IO 前，前端必须先调用游客会话接口或恢复已有会话，确保浏览器已经持有 `zhiliao_session` Cookie。服务端会拒绝无有效会话的握手；同一会话只保留最新连接。
 
+`GET /api/v1/auth/session` 的 `account` 是当前用户的私有账户数据，包含知豆余额、经验、等级和下一等级门槛。房间快照及各实时事件中的 `PublicUser` 只包含可公开的 `level` 和 `levelTitle`，不得从这些数据推算或展示他人的余额。
+
 断线后发言锁立即释放，麦位和排队状态默认保留 10 秒供重连恢复。后端可通过 `REALTIME_DISCONNECT_GRACE_MS` 调整宽限时间；前端不要写死该时长，重连后始终发送 `room:join` 获取完整快照。
 
 服务端 `Socket.IO Server` 已绑定 `ClientToServerEvents` 和 `ServerToClientEvents`，错误的事件名、载荷或 ACK 会在编译阶段暴露。
 
 公屏和发言日志首屏分别通过 `GET /rooms/{roomId}/messages` 与 `GET /rooms/{roomId}/speech-turns` 获取。接口返回最近一页、页内按时间正序排列；继续加载更早内容时原样传回 `nextCursor`，不要解析游标内容。
+
+房间背景资料通过 `GET /rooms/{roomId}/materials?limit=5` 获取。搜索词由后端根据房间主题生成；前端不要额外传入关键词。点击资料时打开响应中的 `zhihuUrl`，新窗口链接应设置 `rel="noopener noreferrer"`。
+
+打赏只能发生在某次仍有效的当前发言中。前端发送 `reward:send` 时传入当前 `speechTurnId` 和 `amount`（仅 `5 | 10 | 50`），收款人由后端根据发言锁确定，不能由前端指定。成功 ACK 直接返回打赏者的 `remainingBalance`；房间内所有人收到不含余额的 `reward:created` 和高亮系统消息，打赏双方分别收到只发给本人的 `account:updated`。重复发送同一个 `requestId` 不会重复扣款。
 
 ## 7. 后端未完成时的前端开发
 
@@ -159,9 +165,10 @@ socket.emit(
 4. `room:join`：首次快照、版本号和重连恢复。
 5. 麦位与队列：上麦、取消、下麦和自动补位。
 6. 发言锁：同时抢锁、120 秒超时、主动释放和 60 秒冷却。
-7. 公屏与点赞：幂等、限频和广播。
-8. TRTC：凭证、进房、获得发言锁后发布音频。
-9. 转写与总结：状态广播、REST 正文和失败降级。
+7. 公屏与点赞：幂等、限频、经验更新和广播。
+8. 打赏：仅当前发言者可收款、三档金额、余额不足、重复请求与余额私有更新。
+9. TRTC：凭证、进房、获得发言锁后发布音频。
+10. 转写与总结：状态广播、REST 正文和失败降级。
 
 ## 9. 每次联调的最低验收
 
@@ -172,6 +179,7 @@ socket.emit(
 - `roomVersion` 断层后客户端通过 `room:resync` 恢复完整快照。
 - 断线、下麦和超时都会释放发言锁并产生一致的结束原因。
 - 前端只在发言锁成功 ACK 后发布 TRTC 音频。
+- 打赏只能转给当前发言者；房间广播不包含任何用户的知豆余额。
 - 所有失败分支依据稳定的错误码处理，不解析错误文案。
 
 ## 10. 分支与变更流程

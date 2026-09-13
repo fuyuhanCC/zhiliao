@@ -195,6 +195,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/rooms/{roomId}/materials": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 获取与当前房间主题相关的知乎背景资料
+         * @description 服务端根据房间主题调用知乎站内搜索，客户端不得自行传入搜索词。
+         *     返回的 zhihuUrl 使用知乎 OpenAPI 提供的溯源链接，可直接跳转知乎查看原文。
+         */
+        get: operations["listRoomMaterials"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/rooms/{roomId}/rtc-credentials": {
         parameters: {
             query?: never;
@@ -342,15 +363,29 @@ export interface components {
         };
         /** @enum {string} */
         IdentityType: "guest" | "zhihu";
+        /** @enum {integer} */
+        UserLevel: 1 | 2 | 3 | 4 | 5 | 6;
+        /** @enum {string} */
+        UserLevelTitle: "蛰伏" | "破土" | "蜕壳" | "振翅" | "鸣夏" | "知秋";
         PublicUser: {
             userId: string;
             identityType: components["schemas"]["IdentityType"];
             displayName: string;
             /** Format: uri */
             avatarUrl: string | null;
+            level: components["schemas"]["UserLevel"];
+            levelTitle: components["schemas"]["UserLevelTitle"];
+        };
+        UserAccount: {
+            coinBalance: number;
+            experience: number;
+            level: components["schemas"]["UserLevel"];
+            levelTitle: components["schemas"]["UserLevelTitle"];
+            nextLevelExperience: number | null;
         };
         SessionResponse: {
             user: components["schemas"]["PublicUser"];
+            account: components["schemas"]["UserAccount"];
             permissions: {
                 canCreateRoom: boolean;
                 canRequestSeat: boolean;
@@ -393,6 +428,31 @@ export interface components {
         HotTopicPage: {
             items: components["schemas"]["Topic"][];
             nextCursor: string | null;
+            /** @enum {string} */
+            source: "zhihu" | "cache" | "fallback";
+            /** Format: date-time */
+            fetchedAt: string;
+        };
+        RoomMaterial: {
+            materialId: string;
+            title: string;
+            excerpt: string | null;
+            /** Format: uri */
+            zhihuUrl: string;
+            /** @description 知乎内容类型，例如 Question、Answer 或 Article。 */
+            contentType: string;
+            authorName: string | null;
+            /** Format: uri */
+            authorAvatarUrl: string | null;
+            voteUpCount: number | null;
+            commentCount: number | null;
+            /** Format: date-time */
+            publishedAt: string | null;
+        };
+        RoomMaterialPage: {
+            roomId: string;
+            query: string;
+            items: components["schemas"]["RoomMaterial"][];
             /** @enum {string} */
             source: "zhihu" | "cache" | "fallback";
             /** Format: date-time */
@@ -933,6 +993,36 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    listRoomMaterials: {
+        parameters: {
+            query?: {
+                /** @description 邀请制房间的访问码。 */
+                inviteCode?: components["parameters"]["InviteCode"];
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                roomId: components["parameters"]["RoomId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 房间背景资料 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoomMaterialPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            502: components["responses"]["UpstreamFailure"];
         };
     };
     createRtcCredentials: {

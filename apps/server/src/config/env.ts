@@ -30,6 +30,10 @@ const envSchema = z
     ZHIHU_REDIRECT_URI: optionalUrl,
     ZHIHU_OAUTH_STATE_TTL_SECONDS: z.coerce.number().int().min(60).max(1800).default(600),
     ZHIHU_OAUTH_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(1000).max(30000).default(10000),
+    ZHIHU_DATA_API_BASE_URL: z.url().default("https://developer.zhihu.com/api/v1"),
+    ZHIHU_ACCESS_SECRET: optionalNonEmptyString,
+    ZHIHU_OPENAPI_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(1000).max(30000).default(10000),
+    ZHIHU_MATERIALS_CACHE_TTL_SECONDS: z.coerce.number().int().min(30).max(86400).default(600),
     TRTC_SDK_APP_ID: optionalPositiveInteger,
     TRTC_SECRET_KEY: optionalNonEmptyString,
     TRTC_USER_SIG_TTL_SECONDS: z.coerce.number().int().min(300).max(604800).default(7200),
@@ -95,6 +99,14 @@ export const env = {
           requestTimeoutMilliseconds: parsedEnv.ZHIHU_OAUTH_REQUEST_TIMEOUT_MS,
         }
       : null,
+  zhihuOpenApi: parsedEnv.ZHIHU_ACCESS_SECRET
+    ? {
+        baseUrl: parsedEnv.ZHIHU_DATA_API_BASE_URL,
+        accessSecret: parsedEnv.ZHIHU_ACCESS_SECRET,
+        requestTimeoutMilliseconds: parsedEnv.ZHIHU_OPENAPI_REQUEST_TIMEOUT_MS,
+        materialsCacheTtlMilliseconds: parsedEnv.ZHIHU_MATERIALS_CACHE_TTL_SECONDS * 1000,
+      }
+    : null,
   trtc:
     parsedEnv.TRTC_SDK_APP_ID !== undefined && parsedEnv.TRTC_SECRET_KEY !== undefined
       ? {

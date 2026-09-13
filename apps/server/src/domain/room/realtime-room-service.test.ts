@@ -2,6 +2,7 @@ import type { PublicUser } from "@zhiliao/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { MemoryRoomStore } from "../../stores/memory/room-store.js";
+import { MemoryAccountStore } from "../../stores/memory/account-store.js";
 import { MemoryChatStore } from "../../stores/memory/chat-store.js";
 import { MemorySpeechTurnStore } from "../../stores/memory/speech-turn-store.js";
 import { createRoomSnapshot } from "../../test/room-fixture.js";
@@ -22,6 +23,8 @@ function participant(
       identityType,
       displayName: `用户 ${index}`,
       avatarUrl: null,
+      level: 1,
+      levelTitle: "蛰伏",
     },
   };
 }
@@ -29,6 +32,7 @@ function participant(
 describe("RealtimeRoomService", () => {
   const roomId = "room_realtime";
   let roomStore: MemoryRoomStore;
+  let accountStore: MemoryAccountStore;
   let chatStore: MemoryChatStore;
   let speechTurnStore: MemorySpeechTurnStore;
   let events: RealtimeStateEvent[];
@@ -38,15 +42,18 @@ describe("RealtimeRoomService", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-09-13T08:00:00.000Z"));
     roomStore = new MemoryRoomStore();
+    accountStore = new MemoryAccountStore();
     chatStore = new MemoryChatStore();
     speechTurnStore = new MemorySpeechTurnStore();
     roomStore.save(createRoomSnapshot(roomId));
     events = [];
     service = new RealtimeRoomService({
       roomStore,
+      accountStore,
       chatStore,
       speechTurnStore,
       emit: (event) => events.push(event),
+      emitAccountUpdate: vi.fn(),
       generateId: () => `id-${events.length + 1}`,
       speechLimitMilliseconds: 120_000,
       cooldownMilliseconds: 60_000,
@@ -196,6 +203,63 @@ describe("RealtimeRoomService", () => {
       nextCursor: null,
       transcriptVersion: 0,
     });
+  });
+
+  it("rewards only the active speaker and never double charges an idempotent request", () => {
+    const speaker = participant(1);
+    const audience = participant(2, "guest");
+    service.join(roomId, speaker);
+    service.join(roomId, audience);
+    service.requestSeat(roomId, speaker);
+    const acquired = service.acquireSpeaker(roomId, speaker);
+    if (!acquired.ok) {
+      throw new Error("expected speaker acquisition to succeed");
+    }
+
+    const first = service.rewardSpeaker(
+      roomId,
+      audience,
+      acquired.data.speechTurnId,
+      10,
+      "session-2:reward:req-1",
+    );
+    const replay = service.rewardSpeaker(
+      roomId,
+      audience,
+      acquired.data.speechTurnId,
+      10,
+      "session-2:reward:req-1",
+    );
+
+    expect(first).toMatchObject({
+      ok: true,
+      data: {
+        amount: 10,
+        recipientUserId: "user-1",
+        remainingBalance: 90,
+      },
+    });
+    expect(replay).toEqual(first);
+    expect(accountStore.get("user-1")).toMatchObject({ coinBalance: 110, experience: 2 });
+    expect(accountStore.get("user-2")?.coinBalance).toBe(90);
+    expect(events.filter((event) => event.name === "reward:created")).toHaveLength(1);
+    expect(chatStore.list(roomId, { limit: 30 }).items).toMatchObject([
+      {
+        type: "system",
+        sender: null,
+        content: "用户 2 打赏了 用户 1 10 知豆",
+      },
+    ]);
+
+    expect(
+      service.rewardSpeaker(
+        roomId,
+        speaker,
+        acquired.data.speechTurnId,
+        5,
+        "session-1:reward:req-self",
+      ),
+    ).toMatchObject({ ok: false, error: { code: "SELF_REWARD_NOT_ALLOWED" } });
   });
 
   it("keeps a seat during the disconnect grace period and cleans it afterwards", async () => {

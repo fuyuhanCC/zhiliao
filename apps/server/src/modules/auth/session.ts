@@ -3,6 +3,8 @@ import { randomInt, randomUUID } from "node:crypto";
 import type { components } from "@zhiliao/shared/openapi";
 import type { Request, Response } from "express";
 
+import { toUserAccount, withAccountProgression } from "../../domain/account/user-account.js";
+import type { AccountStore } from "../../stores/account-store.js";
 import type { SessionStore, UserSession } from "../../stores/session-store.js";
 
 type SessionResponse = components["schemas"]["SessionResponse"];
@@ -26,16 +28,23 @@ export function createGuestSession(displayName?: string): UserSession {
       identityType: "guest",
       displayName: displayName ?? `知友${randomInt(1000, 10000)}`,
       avatarUrl: null,
+      level: 1,
+      levelTitle: "蛰伏",
     },
     createdAt: now,
     updatedAt: now,
   };
 }
 
-export function toSessionResponse(session: UserSession): SessionResponse {
+export function toSessionResponse(
+  session: UserSession,
+  accountStore: AccountStore,
+): SessionResponse {
   const isZhihuUser = session.user.identityType === "zhihu";
+  const account = accountStore.ensure(session.user.userId);
   return {
-    user: session.user,
+    user: withAccountProgression(session.user, account),
+    account: toUserAccount(account),
     permissions: {
       canCreateRoom: isZhihuUser,
       canRequestSeat: isZhihuUser,

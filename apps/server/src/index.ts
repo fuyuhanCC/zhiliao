@@ -24,6 +24,7 @@ const io = new Server<ClientToServerEvents, ServerToClientEvents>(httpServer, {
 });
 const realtimeGateway = registerRealtimeGateway(io, {
   sessionStore: dependencies.sessionStore,
+  accountStore: dependencies.accountStore,
   roomStore: dependencies.roomStore,
   chatStore: dependencies.chatStore,
   speechTurnStore: dependencies.speechTurnStore,

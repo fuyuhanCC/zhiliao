@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 
 import { createApp } from "../../app.js";
 import { MemoryChatStore } from "../../stores/memory/chat-store.js";
+import { MemoryAccountStore } from "../../stores/memory/account-store.js";
 import { MemoryRoomStore } from "../../stores/memory/room-store.js";
 import { MemorySessionStore } from "../../stores/memory/session-store.js";
 import { MemorySpeechTurnStore } from "../../stores/memory/speech-turn-store.js";
@@ -29,6 +30,8 @@ function createZhihuSession(sessionStore: MemorySessionStore): string {
     identityType: "zhihu",
     displayName: "测试知友",
     avatarUrl: null,
+    level: 1,
+    levelTitle: "蛰伏",
   };
   const session: UserSession = {
     sessionId: "session-zhihu-user-1",
@@ -45,6 +48,7 @@ function createTestContext() {
   const roomStore = new MemoryRoomStore();
   const app = createApp({
     sessionStore,
+    accountStore: new MemoryAccountStore(),
     roomStore,
     chatStore: new MemoryChatStore(),
     speechTurnStore: new MemorySpeechTurnStore(),

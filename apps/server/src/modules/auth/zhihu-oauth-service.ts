@@ -1,5 +1,7 @@
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 
+import { withAccountProgression } from "../../domain/account/user-account.js";
+import type { AccountStore } from "../../stores/account-store.js";
 import type { OAuthAttemptStore } from "../../stores/oauth-attempt-store.js";
 import type { SessionStore, UserSession } from "../../stores/session-store.js";
 import type { ZhihuOAuthClient } from "./zhihu-oauth-client.js";
@@ -10,6 +12,7 @@ export interface ZhihuOAuthServiceOptions {
   webOrigin: string;
   attemptTtlSeconds: number;
   attemptStore: OAuthAttemptStore;
+  accountStore: AccountStore;
   sessionStore: SessionStore;
   client: ZhihuOAuthClient;
   now?: () => Date;
@@ -124,14 +127,18 @@ export class ZhihuOAuthService {
     const now = this.now();
     // The current Zhihu OAuth document does not publish a user-profile endpoint or profile schema.
     // Keep the existing nickname and use a session-scoped ID until that contract is available.
+    const zhihuUserId = createZhihuUserId(input.session);
+    const account = this.options.accountStore.migrate(input.session.user.userId, zhihuUserId);
     const upgradedSession: UserSession = {
       ...input.session,
-      user: {
-        userId: createZhihuUserId(input.session),
-        identityType: "zhihu",
-        displayName: input.session.user.displayName,
-        avatarUrl: input.session.user.avatarUrl,
-      },
+      user: withAccountProgression(
+        {
+          ...input.session.user,
+          userId: zhihuUserId,
+          identityType: "zhihu",
+        },
+        account,
+      ),
       zhihuOAuth: {
         accessToken: token.accessToken,
         tokenType: token.tokenType,

@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import { createApp } from "../../app.js";
 import { MemoryChatStore } from "../../stores/memory/chat-store.js";
+import { MemoryAccountStore } from "../../stores/memory/account-store.js";
 import { MemoryRoomStore } from "../../stores/memory/room-store.js";
 import { MemorySessionStore } from "../../stores/memory/session-store.js";
 import { MemorySpeechTurnStore } from "../../stores/memory/speech-turn-store.js";
@@ -14,6 +15,8 @@ const sender: PublicUser = {
   identityType: "zhihu",
   displayName: "测试知友",
   avatarUrl: null,
+  level: 1,
+  levelTitle: "蛰伏",
 };
 
 function createTestContext(visibility: "public" | "invite" = "public") {
@@ -25,6 +28,7 @@ function createTestContext(visibility: "public" | "invite" = "public") {
   roomStore.save(snapshot, visibility === "invite" ? { inviteCode: "invite-code" } : undefined);
   const app = createApp({
     sessionStore: new MemorySessionStore(),
+    accountStore: new MemoryAccountStore(),
     roomStore,
     chatStore,
     speechTurnStore,

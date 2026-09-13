@@ -15,6 +15,7 @@ import { createAuthRouter } from "./modules/auth/auth-router.js";
 import { createRoomRouter } from "./modules/room/room-router.js";
 import { createRoomHistoryRouter } from "./modules/room-history/room-history-router.js";
 import { createRtcCredentialRouter } from "./modules/rtc-credential/rtc-credential-router.js";
+import { createRoomMaterialRouter } from "./modules/zhihu-gateway/room-material-router.js";
 
 const publicDirectory = path.resolve(import.meta.dirname, "../public");
 const webEntryFile = path.join(publicDirectory, "index.html");
@@ -51,6 +52,7 @@ export function createApp(dependencies: AppDependencies = createAppDependencies(
     "/api/v1/auth",
     createAuthRouter({
       sessionStore: dependencies.sessionStore,
+      accountStore: dependencies.accountStore,
       secureCookies: dependencies.secureCookies,
       zhihuOAuthService: dependencies.zhihuOAuthService,
     }),
@@ -69,6 +71,13 @@ export function createApp(dependencies: AppDependencies = createAppDependencies(
       roomStore: dependencies.roomStore,
       chatStore: dependencies.chatStore,
       speechTurnStore: dependencies.speechTurnStore,
+    }),
+  );
+  app.use(
+    "/api/v1",
+    createRoomMaterialRouter({
+      roomStore: dependencies.roomStore,
+      materialService: dependencies.roomMaterialService,
     }),
   );
   app.use(

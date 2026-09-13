@@ -11,6 +11,7 @@ export const CLIENT_EVENTS = {
   speakerRelease: "speaker:release",
   chatSend: "chat:send",
   reactionLike: "reaction:like",
+  rewardSend: "reward:send",
 } as const;
 
 export const SERVER_EVENTS = {
@@ -24,6 +25,8 @@ export const SERVER_EVENTS = {
   cooldownUpdated: "cooldown:updated",
   chatCreated: "chat:created",
   reactionCreated: "reaction:created",
+  rewardCreated: "reward:created",
+  accountUpdated: "account:updated",
   speechClosed: "speech:closed",
   transcriptUpdated: "transcript:updated",
   summaryUpdated: "summary:updated",
@@ -42,6 +45,7 @@ type ReleaseReason = components["schemas"]["ReleaseReason"];
 type TranscriptStatus = components["schemas"]["TranscriptStatus"];
 type TranscriptSource = components["schemas"]["TranscriptSource"];
 type SummaryStatus = components["schemas"]["SummaryStatus"];
+type UserAccount = components["schemas"]["UserAccount"];
 
 export interface CommandError {
   code: string;
@@ -96,6 +100,11 @@ export interface ReactionLikeCommand extends RoomCommand {
   speechTurnId: string;
 }
 
+export interface RewardSendCommand extends RoomCommand {
+  speechTurnId: string;
+  amount: 5 | 10 | 50;
+}
+
 export type SeatRequestResult =
   | {
       status: "seated";
@@ -110,6 +119,14 @@ export interface SpeakerAcquireResult {
   speechTurnId: string;
   acquiredAt: string;
   expiresAt: string;
+}
+
+export interface RewardSendResult {
+  rewardId: string;
+  speechTurnId: string;
+  recipientUserId: string;
+  amount: 5 | 10 | 50;
+  remainingBalance: number;
 }
 
 export interface RoomEvent<T> {
@@ -160,6 +177,21 @@ export interface ReactionCreatedData {
   speechTurnId: string;
   targetUserId: string;
   totalLikes: number;
+  experienceAwarded: boolean;
+}
+
+export interface RewardCreatedData {
+  rewardId: string;
+  speechTurnId: string;
+  amount: 5 | 10 | 50;
+  sender: PublicUser;
+  recipient: PublicUser;
+}
+
+export interface AccountUpdatedEvent {
+  eventId: string;
+  serverTime: string;
+  data: UserAccount;
 }
 
 export interface SpeechClosedData {
@@ -201,6 +233,7 @@ export interface ClientToServerEvents {
   "speaker:release": (command: SpeakerReleaseCommand, acknowledge: AckCallback) => void;
   "chat:send": (command: ChatSendCommand, acknowledge: AckCallback) => void;
   "reaction:like": (command: ReactionLikeCommand, acknowledge: AckCallback) => void;
+  "reward:send": (command: RewardSendCommand, acknowledge: AckCallback<RewardSendResult>) => void;
 }
 
 export interface ServerToClientEvents {
@@ -213,6 +246,8 @@ export interface ServerToClientEvents {
   "cooldown:updated": (event: RoomEvent<CooldownUpdatedData>) => void;
   "chat:created": (event: RoomEvent<ChatCreatedData>) => void;
   "reaction:created": (event: RoomEvent<ReactionCreatedData>) => void;
+  "reward:created": (event: RoomEvent<RewardCreatedData>) => void;
+  "account:updated": (event: AccountUpdatedEvent) => void;
   "speech:closed": (event: RoomEvent<SpeechClosedData>) => void;
   "transcript:updated": (event: RoomEvent<TranscriptUpdatedData>) => void;
   "summary:updated": (event: RoomEvent<SummaryUpdatedData>) => void;

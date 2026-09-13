@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import { createApp } from "../../app.js";
 import { MemoryChatStore } from "../../stores/memory/chat-store.js";
+import { MemoryAccountStore } from "../../stores/memory/account-store.js";
 import { MemoryRoomStore } from "../../stores/memory/room-store.js";
 import { MemorySessionStore } from "../../stores/memory/session-store.js";
 import { MemorySpeechTurnStore } from "../../stores/memory/speech-turn-store.js";
@@ -10,6 +11,7 @@ import { MemorySpeechTurnStore } from "../../stores/memory/speech-turn-store.js"
 function createTestApp() {
   return createApp({
     sessionStore: new MemorySessionStore(),
+    accountStore: new MemoryAccountStore(),
     roomStore: new MemoryRoomStore(),
     chatStore: new MemoryChatStore(),
     speechTurnStore: new MemorySpeechTurnStore(),
@@ -32,6 +34,15 @@ describe("auth routes", () => {
       identityType: "guest",
       displayName: "测试访客",
       avatarUrl: null,
+      level: 1,
+      levelTitle: "蛰伏",
+    });
+    expect(created.body.account).toEqual({
+      coinBalance: 100,
+      experience: 0,
+      level: 1,
+      levelTitle: "蛰伏",
+      nextLevelExperience: 500,
     });
     expect(created.body.permissions).toEqual({
       canCreateRoom: false,

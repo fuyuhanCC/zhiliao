@@ -9,6 +9,8 @@ import {
   type PublicUser,
   type QueueUpdatedData,
   type ReactionCreatedData,
+  type RewardCreatedData,
+  type RewardSendResult,
   type RoomEvent,
   type SeatRequestResult,
   type SeatUpdatedData,
@@ -19,6 +21,9 @@ import {
 } from "@zhiliao/shared";
 import type { components } from "@zhiliao/shared/openapi";
 
+import { toUserAccount, withAccountProgression } from "../account/user-account.js";
+import type { UserAccount } from "../account/user-account.js";
+import type { AccountStore, RewardAmount } from "../../stores/account-store.js";
 import type { ChatStore } from "../../stores/chat-store.js";
 import type { RoomSnapshot, RoomStore } from "../../stores/room-store.js";
 import type { SpeechTurnStore } from "../../stores/speech-turn-store.js";
@@ -35,6 +40,7 @@ interface RealtimeEventDataMap {
   "cooldown:updated": CooldownUpdatedData;
   "chat:created": ChatCreatedData;
   "reaction:created": ReactionCreatedData;
+  "reward:created": RewardCreatedData;
   "speech:closed": SpeechClosedData;
 }
 
@@ -70,9 +76,11 @@ interface SpeakerTimers {
 
 export interface RealtimeRoomServiceOptions {
   roomStore: RoomStore;
+  accountStore: AccountStore;
   chatStore: ChatStore;
   speechTurnStore: SpeechTurnStore;
   emit: (event: RealtimeStateEvent) => void;
+  emitAccountUpdate: (userId: string, account: UserAccount) => void;
   now?: () => Date;
   generateId?: () => string;
   speechLimitMilliseconds?: number;
@@ -452,13 +460,107 @@ export class RealtimeRoomService {
     speechTurn.likeCount += 1;
     this.options.speechTurnStore.update(roomId, speechTurn);
 
+    const experience = this.options.accountStore.awardLikeExperience(speakerLock.userId);
+    if (experience.awarded) {
+      this.updateRoomUserProgression(snapshot.data, speakerLock.userId, experience.account);
+      this.options.emitAccountUpdate(speakerLock.userId, toUserAccount(experience.account));
+    }
+
     this.publishChange(snapshot.data, "reaction:created", {
       type: "like",
       speechTurnId,
       targetUserId: speakerLock.userId,
       totalLikes: speechTurn.likeCount,
+      experienceAwarded: experience.awarded,
     });
     return this.success(snapshot.data, emptyData);
+  }
+
+  rewardSpeaker(
+    roomId: string,
+    participant: RoomParticipant,
+    speechTurnId: string,
+    amount: RewardAmount,
+    idempotencyKey: string,
+  ): RealtimeCommandResult<RewardSendResult> {
+    const snapshot = this.requireJoinedRoom(roomId, participant.sessionId);
+    if (!snapshot.ok) {
+      return snapshot;
+    }
+
+    const speakerLock = snapshot.data.speakerLock;
+    if (!speakerLock || speakerLock.speechTurnId !== speechTurnId) {
+      return this.failure(snapshot.data, "NO_ACTIVE_SPEAKER", "当前发言已结束");
+    }
+    if (speakerLock.userId === participant.user.userId) {
+      return this.failure(snapshot.data, "SELF_REWARD_NOT_ALLOWED", "不能打赏自己");
+    }
+
+    const recipient = snapshot.data.seats.find(
+      (seat) => seat.occupant?.userId === speakerLock.userId,
+    )?.occupant;
+    if (!recipient) {
+      return this.failure(snapshot.data, "NO_ACTIVE_SPEAKER", "当前发言者不在麦位上");
+    }
+
+    let transfer;
+    try {
+      transfer = this.options.accountStore.transferReward({
+        idempotencyKey,
+        rewardId: `reward_${this.generateId()}`,
+        senderUserId: participant.user.userId,
+        recipientUserId: recipient.userId,
+        amount,
+        recipientExperience: 2,
+      });
+    } catch {
+      return this.failure(snapshot.data, "REWARD_CONFLICT", "打赏请求与已完成交易冲突");
+    }
+
+    if (!transfer.ok) {
+      return this.failure(snapshot.data, "INSUFFICIENT_BALANCE", "知豆余额不足", {
+        balance: transfer.balance,
+        required: amount,
+      });
+    }
+
+    const updatedSender = withAccountProgression(participant.user, transfer.senderAccount);
+    const updatedRecipient = withAccountProgression(recipient, transfer.recipientAccount);
+    if (!transfer.replayed) {
+      this.updateRoomUserProgression(snapshot.data, recipient.userId, transfer.recipientAccount);
+      this.options.emitAccountUpdate(
+        participant.user.userId,
+        toUserAccount(transfer.senderAccount),
+      );
+      this.options.emitAccountUpdate(recipient.userId, toUserAccount(transfer.recipientAccount));
+
+      this.publishChange(snapshot.data, "reward:created", {
+        rewardId: transfer.rewardId,
+        speechTurnId,
+        amount,
+        sender: updatedSender,
+        recipient: updatedRecipient,
+      });
+
+      const message: ChatMessage = {
+        messageId: `msg_${this.generateId()}`,
+        clientMessageId: null,
+        type: "system",
+        sender: null,
+        content: `${updatedSender.displayName} 打赏了 ${updatedRecipient.displayName} ${amount} 知豆`,
+        createdAt: this.now().toISOString(),
+      };
+      this.options.chatStore.append(roomId, message);
+      this.publishChange(snapshot.data, "chat:created", message);
+    }
+
+    return this.success(snapshot.data, {
+      rewardId: transfer.rewardId,
+      speechTurnId,
+      recipientUserId: recipient.userId,
+      amount,
+      remainingBalance: transfer.senderAccount.coinBalance,
+    });
   }
 
   getRoomVersion(roomId: string): number {
@@ -528,6 +630,36 @@ export class RealtimeRoomService {
 
   private isParticipant(roomId: string, sessionId: string): boolean {
     return this.participants.get(roomId)?.has(sessionId) ?? false;
+  }
+
+  private updateRoomUserProgression(
+    snapshot: RoomSnapshot,
+    userId: string,
+    account: Parameters<typeof withAccountProgression>[1],
+  ): void {
+    const seat = snapshot.seats.find((candidate) => candidate.occupant?.userId === userId);
+    if (!seat?.occupant) {
+      return;
+    }
+
+    const previousLevel = seat.occupant.level;
+    const updatedUser = withAccountProgression(seat.occupant, account);
+    seat.occupant = updatedUser;
+    for (const participant of this.getParticipants(snapshot.room.roomId).values()) {
+      if (participant.user.userId === userId) {
+        participant.user = structuredClone(updatedUser);
+      }
+    }
+    if (this.getQueuedUsers(snapshot.room.roomId).has(userId)) {
+      this.getQueuedUsers(snapshot.room.roomId).set(userId, structuredClone(updatedUser));
+    }
+
+    if (updatedUser.level !== previousLevel) {
+      this.publishChange(snapshot, "seat:updated", {
+        seatNumber: seat.seatNumber,
+        occupant: structuredClone(updatedUser),
+      });
+    }
   }
 
   private removeUserFromQueue(snapshot: RoomSnapshot, userId: string): void {

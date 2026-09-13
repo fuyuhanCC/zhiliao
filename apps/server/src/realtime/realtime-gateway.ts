@@ -8,8 +8,10 @@ import type {
   RoomEvent,
   RoomJoinCommand,
   RoomResyncCommand,
+  RewardSendResult,
   ServerToClientEvents,
 } from "@zhiliao/shared";
+import type { components } from "@zhiliao/shared/openapi";
 import cookieParser from "cookie-parser";
 import type { Server, Socket } from "socket.io";
 import { z } from "zod";
@@ -20,7 +22,9 @@ import {
   type RealtimeStateEvent,
   type RoomParticipant,
 } from "../domain/room/realtime-room-service.js";
+import { withAccountProgression } from "../domain/account/user-account.js";
 import { SESSION_COOKIE_NAME } from "../modules/auth/session.js";
+import type { AccountStore } from "../stores/account-store.js";
 import type { ChatStore } from "../stores/chat-store.js";
 import type { RoomStore, RoomSnapshot } from "../stores/room-store.js";
 import type { SessionStore, UserSession } from "../stores/session-store.js";
@@ -57,8 +61,11 @@ interface RateWindow {
   count: number;
 }
 
+type UserAccount = components["schemas"]["UserAccount"];
+
 export interface RealtimeGatewayOptions {
   sessionStore: SessionStore;
+  accountStore: AccountStore;
   roomStore: RoomStore;
   chatStore: ChatStore;
   speechTurnStore: SpeechTurnStore;
@@ -100,12 +107,17 @@ const chatSendSchema = roomCommandSchema.extend({
 const reactionLikeSchema = roomCommandSchema.extend({
   speechTurnId: z.string().min(1).max(200),
 });
+const rewardSendSchema = roomCommandSchema.extend({
+  speechTurnId: z.string().min(1).max(200),
+  amount: z.union([z.literal(5), z.literal(10), z.literal(50)]),
+});
 
 const rateLimits: Partial<
   Record<keyof ClientToServerEvents, { maximum: number; windowMilliseconds: number }>
 > = {
   "chat:send": { maximum: 5, windowMilliseconds: 10_000 },
   "reaction:like": { maximum: 10, windowMilliseconds: 10_000 },
+  "reward:send": { maximum: 5, windowMilliseconds: 10_000 },
   "seat:request": { maximum: 3, windowMilliseconds: 10_000 },
   "speaker:acquire": { maximum: 3, windowMilliseconds: 5000 },
 };
@@ -191,9 +203,11 @@ export function registerRealtimeGateway(
   let isClosed = false;
   const service = new RealtimeRoomService({
     roomStore: options.roomStore,
+    accountStore: options.accountStore,
     chatStore: options.chatStore,
     speechTurnStore: options.speechTurnStore,
     emit: emitStateEvent,
+    emitAccountUpdate,
     now,
     ...(options.disconnectGraceMilliseconds === undefined
       ? {}
@@ -236,9 +250,33 @@ export function registerRealtimeGateway(
       case "reaction:created":
         target.emit("reaction:created", stateEvent.event);
         break;
+      case "reward:created":
+        target.emit("reward:created", stateEvent.event);
+        break;
       case "speech:closed":
         target.emit("speech:closed", stateEvent.event);
         break;
+    }
+  }
+
+  function emitAccountUpdate(userId: string, account: UserAccount): void {
+    const event = {
+      eventId: `evt_${randomUUID()}`,
+      serverTime: now().toISOString(),
+      data: structuredClone(account),
+    };
+    for (const socket of io.sockets.sockets.values()) {
+      if (socket.data.session.user.userId !== userId) {
+        continue;
+      }
+      socket.data.session.user = {
+        ...socket.data.session.user,
+        level: account.level,
+        levelTitle: account.levelTitle,
+      };
+      socket.data.session.updatedAt = event.serverTime;
+      options.sessionStore.save(socket.data.session);
+      socket.emit("account:updated", event);
     }
   }
 
@@ -413,6 +451,9 @@ export function registerRealtimeGateway(
     }
 
     socket.data.session = session;
+    const account = options.accountStore.ensure(session.user.userId);
+    socket.data.session.user = withAccountProgression(session.user, account);
+    options.sessionStore.save(socket.data.session);
     const previousSocketId = activeSocketBySession.get(session.sessionId);
     if (previousSocketId && previousSocketId !== socket.id) {
       const previousSocket = io.sockets.sockets.get(previousSocketId);
@@ -607,6 +648,29 @@ export function registerRealtimeGateway(
         acknowledge,
         (participant) =>
           service.likeSpeaker(parsed.data.roomId, participant, parsed.data.speechTurnId),
+      );
+    });
+
+    socket.on("reward:send", (rawCommand, acknowledge) => {
+      const parsed = rewardSendSchema.safeParse(rawCommand);
+      if (!parsed.success) {
+        callAck(acknowledge, validationFailure<RewardSendResult>(rawCommand));
+        return;
+      }
+      executeRoomCommand(
+        socket,
+        "reward:send",
+        parsed.data.requestId,
+        parsed.data.roomId,
+        acknowledge,
+        (participant) =>
+          service.rewardSpeaker(
+            parsed.data.roomId,
+            participant,
+            parsed.data.speechTurnId,
+            parsed.data.amount,
+            `${participant.sessionId}:reward:${parsed.data.requestId}`,
+          ),
       );
     });
 

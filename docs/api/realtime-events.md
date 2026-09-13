@@ -253,6 +253,35 @@ ACK `data` 为最新 `RoomSnapshot`。
 
 相同会话对同一 `SpeechTurn` 最多记一次有效点赞。可能错误：`NO_ACTIVE_SPEAKER`、`ALREADY_LIKED`、`RATE_LIMITED`。
 
+### 3.11 `reward:send`
+
+打赏当前正在发言的用户。游客和知乎登录用户均可调用；不能打赏自己。
+
+```json
+{
+  "requestId": "req_11",
+  "roomId": "room_123",
+  "speechTurnId": "turn_789",
+  "amount": 10
+}
+```
+
+`amount` 只能是 `5`、`10` 或 `50`。服务端以 `speechTurnId` 对应的当前发言者为收款人，不接受客户端指定收款账户。
+
+成功 ACK 的 `data`：
+
+```json
+{
+  "rewardId": "reward_123",
+  "speechTurnId": "turn_789",
+  "recipientUserId": "user_456",
+  "amount": 10,
+  "remainingBalance": 90
+}
+```
+
+可能错误：`NO_ACTIVE_SPEAKER`、`SELF_REWARD_NOT_ALLOWED`、`INSUFFICIENT_BALANCE`、`REWARD_CONFLICT`、`RATE_LIMITED`。
+
 ## 4. 服务端广播
 
 ### 4.1 `room:snapshot`
@@ -320,7 +349,9 @@ ACK `data` 为最新 `RoomSnapshot`。
       "userId": "user_456",
       "identityType": "zhihu",
       "displayName": "某知友",
-      "avatarUrl": "https://example.com/avatar.png"
+      "avatarUrl": "https://example.com/avatar.png",
+      "level": 2,
+      "levelTitle": "破土"
     }
   }
 }
@@ -436,7 +467,9 @@ ACK `data` 为最新 `RoomSnapshot`。
       "userId": "guest_123",
       "identityType": "guest",
       "displayName": "辩手 3 号",
-      "avatarUrl": null
+      "avatarUrl": null,
+      "level": 1,
+      "levelTitle": "蛰伏"
     },
     "content": "我赞同这个观点",
     "createdAt": "2026-09-13T08:04:02.000Z"
@@ -456,12 +489,67 @@ ACK `data` 为最新 `RoomSnapshot`。
     "type": "like",
     "speechTurnId": "turn_789",
     "targetUserId": "user_456",
-    "totalLikes": 12
+    "totalLikes": 12,
+    "experienceAwarded": true
   }
 }
 ```
 
-### 4.10 `speech:closed`
+### 4.10 `reward:created`
+
+打赏成功后向整个房间广播，用于礼物动效和高亮系统消息；不包含任何账户余额。
+
+```json
+{
+  "eventId": "evt_10",
+  "roomId": "room_123",
+  "roomVersion": 32,
+  "serverTime": "2026-09-13T08:04:04.000Z",
+  "data": {
+    "rewardId": "reward_123",
+    "speechTurnId": "turn_789",
+    "amount": 10,
+    "sender": {
+      "userId": "guest_123",
+      "identityType": "guest",
+      "displayName": "围观群众",
+      "avatarUrl": null,
+      "level": 1,
+      "levelTitle": "蛰伏"
+    },
+    "recipient": {
+      "userId": "user_456",
+      "identityType": "zhihu",
+      "displayName": "某知友",
+      "avatarUrl": null,
+      "level": 2,
+      "levelTitle": "破土"
+    }
+  }
+}
+```
+
+同时会产生一条 `type=system` 的 `chat:created` 消息，并进入公屏历史。
+
+### 4.11 `account:updated`
+
+余额或经验变化后只向对应用户本人的连接发送，不向房间广播，也不带 `roomId` 和 `roomVersion`。
+
+```json
+{
+  "eventId": "evt_account_1",
+  "serverTime": "2026-09-13T08:04:04.000Z",
+  "data": {
+    "coinBalance": 90,
+    "experience": 12,
+    "level": 1,
+    "levelTitle": "蛰伏",
+    "nextLevelExperience": 500
+  }
+}
+```
+
+### 4.12 `speech:closed`
 
 一次发言结束后广播，提示发言者上传录音，并提示其他客户端日志即将更新。
 
@@ -482,7 +570,7 @@ ACK `data` 为最新 `RoomSnapshot`。
 }
 ```
 
-### 4.11 `transcript:updated`
+### 4.13 `transcript:updated`
 
 ```json
 {
@@ -502,7 +590,7 @@ ACK `data` 为最新 `RoomSnapshot`。
 
 `status`：`pending`、`processing`、`ready`、`failed`。失败后前端向发言者提供手填摘要入口。
 
-### 4.12 `summary:updated`
+### 4.14 `summary:updated`
 
 ```json
 {
@@ -521,7 +609,7 @@ ACK `data` 为最新 `RoomSnapshot`。
 
 正文通过 REST `GET /rooms/{roomId}/summary` 获取，避免在广播中重复传输长文本。
 
-### 4.13 `room:closed`
+### 4.15 `room:closed`
 
 ```json
 {
@@ -581,6 +669,7 @@ type RoomSnapshot = {
 | ----------------- | -------------------------------------- |
 | `chat:send`       | 每会话 5 条/10 秒                      |
 | `reaction:like`   | 每会话 10 次/10 秒，且同一发言只计一次 |
+| `reward:send`     | 每会话 5 次/10 秒                      |
 | `seat:request`    | 每会话 3 次/10 秒                      |
 | `speaker:acquire` | 每会话 3 次/5 秒                       |
 

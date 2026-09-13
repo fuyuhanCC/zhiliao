@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { createApp } from "../../app.js";
 import { MemoryChatStore } from "../../stores/memory/chat-store.js";
+import { MemoryAccountStore } from "../../stores/memory/account-store.js";
 import { MemoryRoomStore } from "../../stores/memory/room-store.js";
 import { MemorySessionStore } from "../../stores/memory/session-store.js";
 import { MemorySpeechTurnStore } from "../../stores/memory/speech-turn-store.js";
@@ -44,6 +45,7 @@ function createTestApp(
 
   return createApp({
     sessionStore,
+    accountStore: new MemoryAccountStore(),
     roomStore,
     chatStore: new MemoryChatStore(),
     speechTurnStore: new MemorySpeechTurnStore(),
@@ -62,6 +64,7 @@ function createFailingTestApp() {
 
   return createApp({
     sessionStore,
+    accountStore: new MemoryAccountStore(),
     roomStore,
     chatStore: new MemoryChatStore(),
     speechTurnStore: new MemorySpeechTurnStore(),
@@ -98,6 +101,8 @@ describe("RtcCredentialService", () => {
         identityType: "guest",
         displayName: "访客",
         avatarUrl: null,
+        level: 1,
+        levelTitle: "蛰伏",
       },
       isSeated: false,
       idempotencyKey: "request-123",
@@ -114,6 +119,8 @@ describe("RtcCredentialService", () => {
       identityType: "zhihu",
       displayName: "测试知友",
       avatarUrl: null,
+      level: 1,
+      levelTitle: "蛰伏",
     };
 
     const credentials = service.create({
@@ -135,6 +142,8 @@ describe("RtcCredentialService", () => {
       identityType: "guest",
       displayName: "访客",
       avatarUrl: null,
+      level: 1,
+      levelTitle: "蛰伏",
     };
     const input = {
       roomId: "room_123",

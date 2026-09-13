@@ -1,7 +1,12 @@
 import { createHmac } from "node:crypto";
 import { createServer, type Server as HttpServer } from "node:http";
 
-import type { ClientToServerEvents, CommandAck, ServerToClientEvents } from "@zhiliao/shared";
+import type {
+  ClientToServerEvents,
+  CommandAck,
+  RewardSendResult,
+  ServerToClientEvents,
+} from "@zhiliao/shared";
 import { Server } from "socket.io";
 import { io as createClient, type Socket as ClientSocket } from "socket.io-client";
 import request from "supertest";
@@ -10,6 +15,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createApp } from "../app.js";
 import { SESSION_COOKIE_NAME } from "../modules/auth/session.js";
 import { MemoryChatStore } from "../stores/memory/chat-store.js";
+import { MemoryAccountStore } from "../stores/memory/account-store.js";
 import { MemoryRoomStore } from "../stores/memory/room-store.js";
 import { MemorySessionStore } from "../stores/memory/session-store.js";
 import { MemorySpeechTurnStore } from "../stores/memory/speech-turn-store.js";
@@ -47,6 +53,8 @@ function createSession(index: number, identityType: "guest" | "zhihu"): UserSess
       identityType,
       displayName: `用户 ${index}`,
       avatarUrl: null,
+      level: 1,
+      levelTitle: "蛰伏",
     },
     createdAt: "2026-09-13T08:00:00.000Z",
     updatedAt: "2026-09-13T08:00:00.000Z",
@@ -134,6 +142,7 @@ describe("realtime gateway", () => {
   it("synchronizes seats, the speaker lock, chat and likes across clients", async () => {
     const roomId = "room_integration";
     const sessionStore = new MemorySessionStore();
+    const accountStore = new MemoryAccountStore();
     const roomStore = new MemoryRoomStore();
     const chatStore = new MemoryChatStore();
     const speechTurnStore = new MemorySpeechTurnStore();
@@ -145,6 +154,7 @@ describe("realtime gateway", () => {
 
     const app = createApp({
       sessionStore,
+      accountStore,
       roomStore,
       chatStore,
       speechTurnStore,
@@ -160,6 +170,7 @@ describe("realtime gateway", () => {
     });
     gateway = registerRealtimeGateway(ioServer, {
       sessionStore,
+      accountStore,
       roomStore,
       chatStore,
       speechTurnStore,
@@ -211,8 +222,60 @@ describe("realtime gateway", () => {
     });
     expect(likeAck.ok).toBe(true);
     expect(await likeBroadcast).toMatchObject({
-      data: { targetUserId: "user-1", totalLikes: 1 },
+      data: { targetUserId: "user-1", totalLikes: 1, experienceAwarded: true },
     });
+
+    const rewardBroadcast = new Promise<Parameters<ServerToClientEvents["reward:created"]>[0]>(
+      (resolve) => speaker.once("reward:created", resolve),
+    );
+    const senderAccountUpdate = new Promise<Parameters<ServerToClientEvents["account:updated"]>[0]>(
+      (resolve) => guest.once("account:updated", resolve),
+    );
+    const recipientAccountUpdate = new Promise<
+      Parameters<ServerToClientEvents["account:updated"]>[0]
+    >((resolve) => speaker.once("account:updated", resolve));
+    const rewardSystemMessage = new Promise<Parameters<ServerToClientEvents["chat:created"]>[0]>(
+      (resolve) => speaker.once("chat:created", resolve),
+    );
+    const sendReward = () =>
+      new Promise<CommandAck<RewardSendResult>>((resolve) => {
+        guest.emit(
+          "reward:send",
+          {
+            requestId: "reward-speaker",
+            roomId,
+            speechTurnId: acquired.data.speechTurnId,
+            amount: 10,
+          },
+          resolve,
+        );
+      });
+    const rewardAck = await sendReward();
+    expect(rewardAck).toMatchObject({
+      ok: true,
+      data: { amount: 10, recipientUserId: "user-1", remainingBalance: 90 },
+    });
+    const rewardCreated = await rewardBroadcast;
+    expect(rewardCreated).toMatchObject({
+      data: {
+        amount: 10,
+        sender: { userId: "user-2", level: 1 },
+        recipient: { userId: "user-1", level: 1 },
+      },
+    });
+    expect(JSON.stringify(rewardCreated)).not.toContain("coinBalance");
+    expect(await senderAccountUpdate).toMatchObject({ data: { coinBalance: 90 } });
+    expect(await recipientAccountUpdate).toMatchObject({
+      data: { coinBalance: 110, experience: 3 },
+    });
+    expect(await rewardSystemMessage).toMatchObject({
+      data: { type: "system", sender: null, content: "用户 2 打赏了 用户 1 10 知豆" },
+    });
+
+    const retriedRewardAck = await sendReward();
+    expect(retriedRewardAck).toEqual(rewardAck);
+    expect(accountStore.get("user-2")?.coinBalance).toBe(90);
+    expect(accountStore.get("user-1")).toMatchObject({ coinBalance: 110, experience: 3 });
 
     let chatBroadcastCount = 0;
     speaker.on("chat:created", () => {
@@ -261,7 +324,10 @@ describe("realtime gateway", () => {
 
     const messages = await request(app).get(`/api/v1/rooms/${roomId}/messages`);
     expect(messages.body).toMatchObject({
-      items: [{ clientMessageId: "client-message-one", content: "我赞同这个观点" }],
+      items: [
+        { type: "system", content: "用户 2 打赏了 用户 1 10 知豆" },
+        { clientMessageId: "client-message-one", content: "我赞同这个观点" },
+      ],
       nextCursor: null,
     });
     const speechTurns = await request(app).get(`/api/v1/rooms/${roomId}/speech-turns`);
@@ -281,11 +347,13 @@ describe("realtime gateway", () => {
 
   it("rejects a Socket.IO connection without a signed session cookie", async () => {
     const sessionStore = new MemorySessionStore();
+    const accountStore = new MemoryAccountStore();
     const roomStore = new MemoryRoomStore();
     const chatStore = new MemoryChatStore();
     const speechTurnStore = new MemorySpeechTurnStore();
     const app = createApp({
       sessionStore,
+      accountStore,
       roomStore,
       chatStore,
       speechTurnStore,
@@ -301,6 +369,7 @@ describe("realtime gateway", () => {
     });
     gateway = registerRealtimeGateway(ioServer, {
       sessionStore,
+      accountStore,
       roomStore,
       chatStore,
       speechTurnStore,
