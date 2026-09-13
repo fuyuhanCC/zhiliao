@@ -973,8 +973,6 @@ components:
           oneOf:
             - $ref: "#/components/schemas/ManualTopicInput"
             - $ref: "#/components/schemas/ZhihuQuestionTopicInput"
-          discriminator:
-            propertyName: source
 
     CreateRoomResponse:
       type: object

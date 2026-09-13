@@ -1,22 +1,8 @@
-export type IdentityType = "guest" | "zhihu";
-export type TopicSource = "hot" | "zhihu_question" | "custom";
+import type { components } from "./generated/openapi.js";
+
+export type IdentityType = components["schemas"]["IdentityType"];
+export type TopicSource = components["schemas"]["TopicSource"];
 
 export type SeatNumber = 1 | 2 | 3 | 4 | 5 | 6;
 
-export interface PublicUser {
-  userId: string;
-  identityType: IdentityType;
-  displayName: string;
-  avatarUrl: string | null;
-}
-
-export interface CommandAck<T = undefined> {
-  requestId: string;
-  ok: boolean;
-  data?: T;
-  error?: {
-    code: string;
-    message: string;
-    details?: Record<string, unknown>;
-  };
-}
+export type PublicUser = components["schemas"]["PublicUser"];

@@ -73,12 +73,12 @@
 {
   "requestId": "req_1",
   "roomId": "room_123",
-  "lastKnownVersion": 12,
+  "lastKnownVersion": null,
   "inviteCode": null
 }
 ```
 
-`inviteCode` 仅用于邀请制房间。ACK `data` 为 `RoomSnapshot`。如果房间不存在、访问码无效或房间已回收，返回 `ROOM_NOT_FOUND`、`INVITE_REQUIRED`、`INVALID_INVITE_CODE` 或 `ROOM_CLOSED`。
+首次进入时 `lastKnownVersion` 为 `null`，重连时传客户端最后应用的版本号。`inviteCode` 仅用于邀请制房间。ACK `data` 为 `RoomSnapshot`。如果房间不存在、访问码无效或房间已回收，返回 `ROOM_NOT_FOUND`、`INVITE_REQUIRED`、`INVALID_INVITE_CODE` 或 `ROOM_CLOSED`。
 
 ### 3.2 `room:leave`
 
@@ -102,6 +102,8 @@
   "lastKnownVersion": 17
 }
 ```
+
+ACK `data` 为最新 `RoomSnapshot`。
 
 ### 3.4 `seat:request`
 
@@ -316,6 +318,7 @@
     "seatNumber": 3,
     "occupant": {
       "userId": "user_456",
+      "identityType": "zhihu",
       "displayName": "某知友",
       "avatarUrl": "https://example.com/avatar.png"
     }
@@ -431,6 +434,7 @@
     "type": "text",
     "sender": {
       "userId": "guest_123",
+      "identityType": "guest",
       "displayName": "辩手 3 号",
       "avatarUrl": null
     },
@@ -560,7 +564,7 @@ type RoomSnapshot = {
 };
 ```
 
-共享 TypeScript 类型最终放入 `packages/shared`，此文档描述网络协议语义。
+共享 TypeScript 类型位于 `packages/shared/src/realtime.ts`。前端使用 `Socket<ServerToClientEvents, ClientToServerEvents>`，服务端使用 `Server<ClientToServerEvents, ServerToClientEvents>`；本文档继续作为网络协议语义的事实来源。
 
 ## 6. 重连与清理
 
@@ -573,11 +577,11 @@ type RoomSnapshot = {
 
 ## 7. 限频建议
 
-| 命令 | 建议限制 |
-| --- | --- |
-| `chat:send` | 每会话 5 条/10 秒 |
-| `reaction:like` | 每会话 10 次/10 秒，且同一发言只计一次 |
-| `seat:request` | 每会话 3 次/10 秒 |
-| `speaker:acquire` | 每会话 3 次/5 秒 |
+| 命令              | 建议限制                               |
+| ----------------- | -------------------------------------- |
+| `chat:send`       | 每会话 5 条/10 秒                      |
+| `reaction:like`   | 每会话 10 次/10 秒，且同一发言只计一次 |
+| `seat:request`    | 每会话 3 次/10 秒                      |
+| `speaker:acquire` | 每会话 3 次/5 秒                       |
 
 具体数值可通过服务端配置调整，但错误码固定为 `RATE_LIMITED`。

@@ -6,6 +6,9 @@
 
 - [`openapi.yaml`](./openapi.yaml)：HTTP REST API，采用 OpenAPI 3.1。
 - [`realtime-events.md`](./realtime-events.md)：Socket.IO 命令、事件、ACK、重连与状态同步规则。
+- [`../integration-guide.md`](../integration-guide.md)：本地启动、分开开发、Mock 和联调验收流程。
+
+对应的 TypeScript 类型位于 `packages/shared`：OpenAPI 生成类型通过 `@zhiliao/shared/openapi` 导入，Socket.IO 类型和事件名通过 `@zhiliao/shared` 导入。
 
 ## 协议职责
 
@@ -81,27 +84,27 @@ HTTP 成功响应直接返回资源或结果，不额外套 `data`：
 
 客户端根据稳定的 `code` 分支处理，不解析 `message`。建议的 HTTP 映射：
 
-| HTTP | 错误码示例 | 含义 |
-| --- | --- | --- |
-| 400 | `VALIDATION_ERROR` | 参数不合法 |
-| 401 | `AUTH_REQUIRED`、`SESSION_EXPIRED` | 缺少或失效会话 |
-| 403 | `FORBIDDEN`、`ZHIHU_LOGIN_REQUIRED`、`INVITE_REQUIRED`、`INVALID_INVITE_CODE` | 身份或邀请权限不足 |
-| 404 | `ROOM_NOT_FOUND`、`SPEECH_TURN_NOT_FOUND` | 资源不存在 |
-| 409 | `ALREADY_SEATED`、`SPEAKER_LOCKED`、`COOLDOWN_ACTIVE` | 当前状态冲突 |
-| 413 | `AUDIO_TOO_LARGE` | 音频超过上限 |
-| 429 | `RATE_LIMITED` | 请求过于频繁 |
-| 502 | `ZHIHU_API_UNAVAILABLE`、`ASR_FAILED`、`SUMMARY_FAILED` | 外部服务失败 |
+| HTTP | 错误码示例                                                                    | 含义               |
+| ---- | ----------------------------------------------------------------------------- | ------------------ |
+| 400  | `VALIDATION_ERROR`                                                            | 参数不合法         |
+| 401  | `AUTH_REQUIRED`、`SESSION_EXPIRED`                                            | 缺少或失效会话     |
+| 403  | `FORBIDDEN`、`ZHIHU_LOGIN_REQUIRED`、`INVITE_REQUIRED`、`INVALID_INVITE_CODE` | 身份或邀请权限不足 |
+| 404  | `ROOM_NOT_FOUND`、`SPEECH_TURN_NOT_FOUND`                                     | 资源不存在         |
+| 409  | `ALREADY_SEATED`、`SPEAKER_LOCKED`、`COOLDOWN_ACTIVE`                         | 当前状态冲突       |
+| 413  | `AUDIO_TOO_LARGE`                                                             | 音频超过上限       |
+| 429  | `RATE_LIMITED`                                                                | 请求过于频繁       |
+| 502  | `ZHIHU_API_UNAVAILABLE`、`ASR_FAILED`、`SUMMARY_FAILED`                       | 外部服务失败       |
 
 ## 权限摘要
 
-| 操作 | 游客 | 知乎登录用户 |
-| --- | :---: | :---: |
-| 浏览话题与房间 | ✓ | ✓ |
-| 进房旁听、查看日志 | ✓ | ✓ |
-| 发公屏、点赞 | ✓ | ✓ |
-| 创建房间 | — | ✓ |
-| 排队、上麦、发言 | — | ✓ |
-| 提交本人发言摘要 | — | ✓ |
+| 操作               | 游客 | 知乎登录用户 |
+| ------------------ | :--: | :----------: |
+| 浏览话题与房间     |  ✓   |      ✓       |
+| 进房旁听、查看日志 |  ✓   |      ✓       |
+| 发公屏、点赞       |  ✓   |      ✓       |
+| 创建房间           |  —   |      ✓       |
+| 排队、上麦、发言   |  —   |      ✓       |
+| 提交本人发言摘要   |  —   |      ✓       |
 
 ## 知乎上游接口注意事项
 

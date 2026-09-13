@@ -24,9 +24,10 @@ docs(api): add transcript contract
 涉及前后端交互时：
 
 1. 先修改 `docs/api/openapi.yaml` 或 `docs/api/realtime-events.md`。
-2. 在 PR 描述中说明兼容性和需要同步修改的模块。
-3. 前后端分别基于同一契约实现。
-4. 联调后再合并。
+2. REST 变化运行 `pnpm --filter @zhiliao/shared generate:api`；实时事件变化同步修改 `packages/shared/src/realtime.ts`。
+3. 在 PR 描述中说明兼容性和需要同步修改的模块。
+4. 前后端分别基于同一契约实现。
+5. 按 `docs/integration-guide.md` 联调后再合并。
 
 ## Pull Request
 

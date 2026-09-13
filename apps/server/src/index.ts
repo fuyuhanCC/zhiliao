@@ -2,6 +2,7 @@ import "dotenv/config";
 
 import { createServer } from "node:http";
 
+import type { ClientToServerEvents, ServerToClientEvents } from "@zhiliao/shared";
 import { Server } from "socket.io";
 
 import { createApp } from "./app.js";
@@ -11,7 +12,7 @@ import { logger } from "./lib/logger.js";
 const app = createApp();
 const httpServer = createServer(app);
 
-const io = new Server(httpServer, {
+const io = new Server<ClientToServerEvents, ServerToClientEvents>(httpServer, {
   path: "/socket.io",
   cors: {
     origin: env.webOrigin,

@@ -20,6 +20,7 @@
 - [接口文档总览](./docs/api/README.md)
 - [REST OpenAPI 契约](./docs/api/openapi.yaml)
 - [Socket.IO 实时事件契约](./docs/api/realtime-events.md)
+- [前后端开发与联调指南](./docs/integration-guide.md)
 - [协作开发约定](./CONTRIBUTING.md)
 
 ## 工程结构

@@ -454,19 +454,13 @@ export interface components {
             nextCursor: string | null;
         };
         ManualTopicInput: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            source: "ManualTopicInput";
+            /** @constant */
+            source: "manual";
             title: string;
         };
         ZhihuQuestionTopicInput: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            source: "ZhihuQuestionTopicInput";
+            /** @constant */
+            source: "zhihu_question";
             /** Format: uri */
             questionUrl: string;
             title: string;
