@@ -31,6 +31,11 @@ const envSchema = z
     ZHIHU_OAUTH_STATE_TTL_SECONDS: z.coerce.number().int().min(60).max(1800).default(600),
     ZHIHU_OAUTH_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(1000).max(30000).default(10000),
     ZHIHU_DATA_API_BASE_URL: z.url().default("https://developer.zhihu.com/api/v1"),
+    ZHIHU_ZHIDA_API_URL: z.url().default("https://developer.zhihu.com/v1/chat/completions"),
+    ZHIHU_ZHIDA_MODEL: z
+      .enum(["zhida-fast-1p5", "zhida-thinking-1p5", "zhida-agent"])
+      .default("zhida-fast-1p5"),
+    ZHIHU_ZHIDA_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(1000).max(120000).default(30000),
     ZHIHU_ACCESS_SECRET: optionalNonEmptyString,
     ZHIHU_OPENAPI_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(1000).max(30000).default(10000),
     ZHIHU_HOT_TOPICS_CACHE_TTL_SECONDS: z.coerce.number().int().min(30).max(86400).default(300),
@@ -38,6 +43,15 @@ const envSchema = z
     TRTC_SDK_APP_ID: optionalPositiveInteger,
     TRTC_SECRET_KEY: optionalNonEmptyString,
     TRTC_USER_SIG_TTL_SECONDS: z.coerce.number().int().min(300).max(604800).default(7200),
+    ASR_PROVIDER: z.preprocess(
+      (value) => (value === "manual" ? "disabled" : value),
+      z.enum(["disabled", "tencent_flash"]).default("disabled"),
+    ),
+    TENCENT_CLOUD_APP_ID: optionalPositiveInteger,
+    TENCENT_CLOUD_SECRET_ID: optionalNonEmptyString,
+    TENCENT_CLOUD_SECRET_KEY: optionalNonEmptyString,
+    TENCENT_ASR_ENGINE_TYPE: z.string().min(1).default("16k_zh"),
+    TENCENT_ASR_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(1000).max(120000).default(60000),
   })
   .superRefine((value, context) => {
     const hasZhihuAppId = value.ZHIHU_OAUTH_APP_ID !== undefined;
@@ -68,6 +82,22 @@ const envSchema = z
         message: "TRTC_SDK_APP_ID 和 TRTC_SECRET_KEY 必须同时配置",
         path: hasSdkAppId ? ["TRTC_SECRET_KEY"] : ["TRTC_SDK_APP_ID"],
       });
+    }
+
+    if (value.ASR_PROVIDER === "tencent_flash") {
+      for (const [name, configured] of [
+        ["TENCENT_CLOUD_APP_ID", value.TENCENT_CLOUD_APP_ID],
+        ["TENCENT_CLOUD_SECRET_ID", value.TENCENT_CLOUD_SECRET_ID],
+        ["TENCENT_CLOUD_SECRET_KEY", value.TENCENT_CLOUD_SECRET_KEY],
+      ] as const) {
+        if (configured === undefined) {
+          context.addIssue({
+            code: "custom",
+            message: `启用腾讯云极速版 ASR 时必须配置 ${name}`,
+            path: [name],
+          });
+        }
+      }
     }
 
     if (value.NODE_ENV === "production" && value.SESSION_SECRET === developmentSessionSecret) {
@@ -109,12 +139,33 @@ export const env = {
         materialsCacheTtlMilliseconds: parsedEnv.ZHIHU_MATERIALS_CACHE_TTL_SECONDS * 1000,
       }
     : null,
+  zhihuZhida: parsedEnv.ZHIHU_ACCESS_SECRET
+    ? {
+        apiUrl: parsedEnv.ZHIHU_ZHIDA_API_URL,
+        accessSecret: parsedEnv.ZHIHU_ACCESS_SECRET,
+        model: parsedEnv.ZHIHU_ZHIDA_MODEL,
+        requestTimeoutMilliseconds: parsedEnv.ZHIHU_ZHIDA_REQUEST_TIMEOUT_MS,
+      }
+    : null,
   trtc:
     parsedEnv.TRTC_SDK_APP_ID !== undefined && parsedEnv.TRTC_SECRET_KEY !== undefined
       ? {
           sdkAppId: parsedEnv.TRTC_SDK_APP_ID,
           secretKey: parsedEnv.TRTC_SECRET_KEY,
           userSigTtlSeconds: parsedEnv.TRTC_USER_SIG_TTL_SECONDS,
+        }
+      : null,
+  asr:
+    parsedEnv.ASR_PROVIDER === "tencent_flash" &&
+    parsedEnv.TENCENT_CLOUD_APP_ID !== undefined &&
+    parsedEnv.TENCENT_CLOUD_SECRET_ID !== undefined &&
+    parsedEnv.TENCENT_CLOUD_SECRET_KEY !== undefined
+      ? {
+          appId: parsedEnv.TENCENT_CLOUD_APP_ID,
+          secretId: parsedEnv.TENCENT_CLOUD_SECRET_ID,
+          secretKey: parsedEnv.TENCENT_CLOUD_SECRET_KEY,
+          engineType: parsedEnv.TENCENT_ASR_ENGINE_TYPE,
+          requestTimeoutMilliseconds: parsedEnv.TENCENT_ASR_REQUEST_TIMEOUT_MS,
         }
       : null,
 } as const;

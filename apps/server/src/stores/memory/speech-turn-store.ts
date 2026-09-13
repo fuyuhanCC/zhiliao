@@ -33,7 +33,15 @@ export class MemorySpeechTurnStore implements SpeechTurnStore {
     if (!turns || index === undefined || index < 0) {
       return false;
     }
+    const previous = turns[index];
     turns[index] = structuredClone(speechTurn);
+    if (
+      speechTurn.transcript?.status === "ready" &&
+      (previous?.transcript?.status !== "ready" ||
+        previous.transcript.text !== speechTurn.transcript.text)
+    ) {
+      this.transcriptVersionByRoom.set(roomId, (this.transcriptVersionByRoom.get(roomId) ?? 0) + 1);
+    }
     return true;
   }
 
@@ -51,5 +59,17 @@ export class MemorySpeechTurnStore implements SpeechTurnStore {
       nextCursor: startIndex > 0 ? (items[0]?.speechTurnId ?? null) : null,
       transcriptVersion: this.transcriptVersionByRoom.get(roomId) ?? 0,
     };
+  }
+
+  listReady(roomId: string): SpeechTurn[] {
+    return structuredClone(
+      (this.turnsByRoom.get(roomId) ?? []).filter(
+        (turn) => turn.transcript?.status === "ready" && Boolean(turn.transcript.text),
+      ),
+    );
+  }
+
+  getTranscriptVersion(roomId: string): number {
+    return this.transcriptVersionByRoom.get(roomId) ?? 0;
   }
 }

@@ -13,4 +13,6 @@ export interface SpeechTurnStore {
   get(roomId: string, speechTurnId: string): SpeechTurn | undefined;
   update(roomId: string, speechTurn: SpeechTurn): boolean;
   list(roomId: string, options: ListSpeechTurnsOptions): SpeechTurnPage;
+  listReady(roomId: string): SpeechTurn[];
+  getTranscriptVersion(roomId: string): number;
 }

@@ -430,7 +430,8 @@ paths:
       summary: 上传本人一次发言的音频片段并启动转写
       description: |
         仅该 SpeechTurn 的发言者可上传。音频只用于转写，处理后删除，不提供录音回放。
-        MVP 建议限制为 20 MiB、最长 120 秒。
+        限制为 20 MiB、最长 120 秒。支持 wav、mp3、m4a、ogg-opus、aac、amr；
+        浏览器端应优先录制 m4a，其次为 ogg-opus，不支持直接上传 WebM。
       parameters:
         - $ref: "#/components/parameters/RoomId"
         - $ref: "#/components/parameters/SpeechTurnId"
@@ -472,42 +473,8 @@ paths:
                 $ref: "#/components/schemas/ErrorResponse"
         "429":
           $ref: "#/components/responses/RateLimited"
-
-  /rooms/{roomId}/speech-turns/{speechTurnId}/manual-transcript:
-    put:
-      tags: [Transcripts]
-      operationId: putManualTranscript
-      summary: 提交本人发言的一句话摘要
-      description: ASR 不可用或失败时的兜底；仅该 SpeechTurn 的发言者可提交。
-      parameters:
-        - $ref: "#/components/parameters/RoomId"
-        - $ref: "#/components/parameters/SpeechTurnId"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              additionalProperties: false
-              required: [text]
-              properties:
-                text:
-                  type: string
-                  minLength: 1
-                  maxLength: 200
-      responses:
-        "200":
-          description: 已保存手填摘要
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Transcript"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
+        "502":
+          $ref: "#/components/responses/UpstreamFailure"
 
   /rooms/{roomId}/summary:
     get:
@@ -1207,7 +1174,7 @@ components:
 
     TranscriptSource:
       type: string
-      enum: [asr, manual]
+      const: asr
 
     Transcript:
       type: object

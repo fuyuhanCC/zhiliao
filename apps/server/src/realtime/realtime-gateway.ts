@@ -29,6 +29,7 @@ import type { ChatStore } from "../stores/chat-store.js";
 import type { RoomStore, RoomSnapshot } from "../stores/room-store.js";
 import type { SessionStore, UserSession } from "../stores/session-store.js";
 import type { SpeechTurnStore } from "../stores/speech-turn-store.js";
+import type { RoomEventBus } from "./room-event-bus.js";
 
 interface InterServerEvents {}
 
@@ -69,6 +70,7 @@ export interface RealtimeGatewayOptions {
   roomStore: RoomStore;
   chatStore: ChatStore;
   speechTurnStore: SpeechTurnStore;
+  roomEventBus?: RoomEventBus;
   sessionSecret: string;
   disconnectGraceMilliseconds?: number;
   speechLimitMilliseconds?: number;
@@ -201,6 +203,30 @@ export function registerRealtimeGateway(
   const acknowledgements = new Map<string, CachedAck>();
   const rateWindows = new Map<string, RateWindow>();
   let isClosed = false;
+  const unsubscribeDerivedEvents = options.roomEventBus?.subscribe((derivedEvent) => {
+    const snapshot = options.roomStore.get(derivedEvent.roomId);
+    if (!snapshot || isClosed) {
+      return;
+    }
+    const event = {
+      eventId: `evt_${randomUUID()}`,
+      roomId: derivedEvent.roomId,
+      roomVersion: snapshot.room.version,
+      serverTime: now().toISOString(),
+      data: derivedEvent.data,
+    };
+    if (derivedEvent.name === "transcript:updated") {
+      io.to(derivedEvent.roomId).emit("transcript:updated", {
+        ...event,
+        data: derivedEvent.data,
+      });
+    } else {
+      io.to(derivedEvent.roomId).emit("summary:updated", {
+        ...event,
+        data: derivedEvent.data,
+      });
+    }
+  });
   const service = new RealtimeRoomService({
     roomStore: options.roomStore,
     accountStore: options.accountStore,
@@ -691,6 +717,7 @@ export function registerRealtimeGateway(
         return;
       }
       isClosed = true;
+      unsubscribeDerivedEvents?.();
       service.dispose();
       acknowledgements.clear();
       rateWindows.clear();

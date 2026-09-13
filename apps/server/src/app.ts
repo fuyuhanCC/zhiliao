@@ -15,6 +15,8 @@ import { createAuthRouter } from "./modules/auth/auth-router.js";
 import { createRoomRouter } from "./modules/room/room-router.js";
 import { createRoomHistoryRouter } from "./modules/room-history/room-history-router.js";
 import { createRtcCredentialRouter } from "./modules/rtc-credential/rtc-credential-router.js";
+import { createSummaryRouter } from "./modules/summary/summary-router.js";
+import { createTranscriptRouter } from "./modules/transcript/transcript-router.js";
 import { createHotTopicRouter } from "./modules/zhihu-gateway/hot-topic-router.js";
 import { createRoomMaterialRouter } from "./modules/zhihu-gateway/room-material-router.js";
 
@@ -40,6 +42,24 @@ export function createApp(dependencies: AppDependencies = createAppDependencies(
     response.setHeader("X-Request-Id", requestId);
     next();
   });
+
+  app.use(
+    "/api/v1",
+    createTranscriptRouter({
+      sessionStore: dependencies.sessionStore,
+      service: dependencies.transcriptService ?? null,
+    }),
+  );
+  if (dependencies.summaryService) {
+    app.use(
+      "/api/v1",
+      createSummaryRouter({
+        sessionStore: dependencies.sessionStore,
+        roomStore: dependencies.roomStore,
+        service: dependencies.summaryService,
+      }),
+    );
+  }
 
   app.get("/api/v1/health", (_request, response) => {
     response.json({

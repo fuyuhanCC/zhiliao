@@ -588,7 +588,7 @@ ACK `data` 为最新 `RoomSnapshot`。
 }
 ```
 
-`status`：`pending`、`processing`、`ready`、`failed`。失败后前端向发言者提供手填摘要入口。
+`status`：`pending`、`processing`、`ready`、`failed`。失败后保留失败状态并允许重新上传本次音频，不提供手填摘要入口。
 
 ### 4.14 `summary:updated`
 

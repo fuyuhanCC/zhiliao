@@ -27,6 +27,7 @@ import {
   type RealtimeGateway,
   type RealtimeServer,
 } from "./realtime-gateway.js";
+import { RoomEventBus } from "./room-event-bus.js";
 
 type TestClient = ClientSocket<ServerToClientEvents, ClientToServerEvents>;
 
@@ -146,6 +147,7 @@ describe("realtime gateway", () => {
     const roomStore = new MemoryRoomStore();
     const chatStore = new MemoryChatStore();
     const speechTurnStore = new MemorySpeechTurnStore();
+    const roomEventBus = new RoomEventBus();
     const speakerSession = createSession(1, "zhihu");
     const guestSession = createSession(2, "guest");
     sessionStore.save(speakerSession);
@@ -174,6 +176,7 @@ describe("realtime gateway", () => {
       roomStore,
       chatStore,
       speechTurnStore,
+      roomEventBus,
       sessionSecret,
       disconnectGraceMilliseconds: 20,
     });
@@ -184,6 +187,25 @@ describe("realtime gateway", () => {
     expect((await joinRoom(speaker, roomId, "join-speaker")).ok).toBe(true);
     const guestJoin = await joinRoom(guest, roomId, "join-guest");
     expect(guestJoin).toMatchObject({ ok: true, data: { room: { onlineCount: 2 } } });
+
+    const transcriptBroadcast = new Promise<
+      Parameters<ServerToClientEvents["transcript:updated"]>[0]
+    >((resolve) => guest.once("transcript:updated", resolve));
+    roomEventBus.publish({
+      name: "transcript:updated",
+      roomId,
+      data: {
+        speechTurnId: "turn-derived",
+        status: "ready",
+        source: "asr",
+        text: "转写完成",
+        failureCode: null,
+      },
+    });
+    expect(await transcriptBroadcast).toMatchObject({
+      roomId,
+      data: { speechTurnId: "turn-derived", status: "ready", text: "转写完成" },
+    });
 
     const seatBroadcast = new Promise<Parameters<ServerToClientEvents["seat:updated"]>[0]>(
       (resolve) => guest.once("seat:updated", resolve),

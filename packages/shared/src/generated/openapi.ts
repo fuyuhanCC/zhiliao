@@ -283,29 +283,10 @@ export interface paths {
         /**
          * 上传本人一次发言的音频片段并启动转写
          * @description 仅该 SpeechTurn 的发言者可上传。音频只用于转写，处理后删除，不提供录音回放。
-         *     MVP 建议限制为 20 MiB、最长 120 秒。
+         *     限制为 20 MiB、最长 120 秒。支持 wav、mp3、m4a、ogg-opus、aac、amr；
+         *     浏览器端应优先录制 m4a，其次为 ogg-opus，不支持直接上传 WebM。
          */
         post: operations["uploadSpeechAudio"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/rooms/{roomId}/speech-turns/{speechTurnId}/manual-transcript": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /**
-         * 提交本人发言的一句话摘要
-         * @description ASR 不可用或失败时的兜底；仅该 SpeechTurn 的发言者可提交。
-         */
-        put: operations["putManualTranscript"];
-        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -565,8 +546,8 @@ export interface components {
         ReleaseReason: "user_finished" | "time_limit" | "seat_left" | "disconnected" | "room_closed";
         /** @enum {string} */
         TranscriptStatus: "pending" | "processing" | "ready" | "failed";
-        /** @enum {string} */
-        TranscriptSource: "asr" | "manual";
+        /** @constant */
+        TranscriptSource: "asr";
         Transcript: {
             status: components["schemas"]["TranscriptStatus"];
             source: components["schemas"]["TranscriptSource"] | null;
@@ -1163,38 +1144,7 @@ export interface operations {
                 };
             };
             429: components["responses"]["RateLimited"];
-        };
-    };
-    putManualTranscript: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                roomId: components["parameters"]["RoomId"];
-                speechTurnId: components["parameters"]["SpeechTurnId"];
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": {
-                    text: string;
-                };
-            };
-        };
-        responses: {
-            /** @description 已保存手填摘要 */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Transcript"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
+            502: components["responses"]["UpstreamFailure"];
         };
     };
     getRoomSummary: {

@@ -28,6 +28,7 @@ const realtimeGateway = registerRealtimeGateway(io, {
   roomStore: dependencies.roomStore,
   chatStore: dependencies.chatStore,
   speechTurnStore: dependencies.speechTurnStore,
+  ...(dependencies.roomEventBus ? { roomEventBus: dependencies.roomEventBus } : {}),
   sessionSecret: dependencies.sessionSecret,
   disconnectGraceMilliseconds: env.realtimeDisconnectGraceMilliseconds,
 });

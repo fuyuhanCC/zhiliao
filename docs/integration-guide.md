@@ -148,6 +148,26 @@ socket.emit(
 
 打赏只能发生在某次仍有效的当前发言中。前端发送 `reward:send` 时传入当前 `speechTurnId` 和 `amount`（仅 `5 | 10 | 50`），收款人由后端根据发言锁确定，不能由前端指定。成功 ACK 直接返回打赏者的 `remainingBalance`；房间内所有人收到不含余额的 `reward:created` 和高亮系统消息，打赏双方分别收到只发给本人的 `account:updated`。重复发送同一个 `requestId` 不会重复扣款。
 
+### 6.1 单次发言录音、转写与总结
+
+前端使用 `apps/web/src/lib/speech-turn-recorder.ts` 中的 `SpeechTurnRecorder`。在 `speaker:acquire` 成功 ACK 后开始录制；收到对应 `speech:closed`（主动闭麦也会产生该事件）后停止录制，并调用 `uploadSpeechTurnAudio`。不要录制整场房间，也不要把远端混音上传。
+
+浏览器必须从 `audio/mp4`（m4a）和 `audio/ogg;codecs=opus` 中选择实际支持的格式。腾讯云极速版 ASR 不接受 WebM，因此仅支持 `audio/webm` 的浏览器要提示“当前浏览器不支持转写”，但这不影响 TRTC 实时语音。
+
+上传接口返回 `202 processing` 后，页面以 Socket.IO 的 `transcript:updated` 为准更新状态；刷新后则通过发言日志 REST 恢复。用户打开辩论日志时调用 `POST /rooms/{roomId}/summary/generate`，随后监听 `summary:updated`，再通过 `GET /rooms/{roomId}/summary` 拉取完整正文。相同 `transcriptVersion` 会复用已有结果。
+
+本地启用完整链路需要服务端 `.env` 至少配置：
+
+```dotenv
+ASR_PROVIDER=tencent_flash
+TENCENT_CLOUD_APP_ID=<腾讯云账号 AppID>
+TENCENT_CLOUD_SECRET_ID=<API SecretId>
+TENCENT_CLOUD_SECRET_KEY=<API SecretKey>
+ZHIHU_ACCESS_SECRET=<知乎开放平台 Access Secret>
+```
+
+`TENCENT_CLOUD_APP_ID` 是腾讯云账号 AppID，不是 TRTC 的 `SDKAppID`。密钥仅放在服务端，不得写入 `VITE_` 变量。
+
 ## 7. 后端未完成时的前端开发
 
 前端可以根据 OpenAPI 和实时事件文档维护少量 fixture，但必须遵守以下规则：
