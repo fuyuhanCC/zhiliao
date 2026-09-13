@@ -132,6 +132,10 @@ socket.emit(
 );
 ```
 
+连接 Socket.IO 前，前端必须先调用游客会话接口或恢复已有会话，确保浏览器已经持有 `zhiliao_session` Cookie。服务端会拒绝无有效会话的握手；同一会话只保留最新连接。
+
+断线后发言锁立即释放，麦位和排队状态默认保留 10 秒供重连恢复。后端可通过 `REALTIME_DISCONNECT_GRACE_MS` 调整宽限时间；前端不要写死该时长，重连后始终发送 `room:join` 获取完整快照。
+
 服务端 `Socket.IO Server` 已绑定 `ClientToServerEvents` 和 `ServerToClientEvents`，错误的事件名、载荷或 ACK 会在编译阶段暴露。
 
 ## 7. 后端未完成时的前端开发

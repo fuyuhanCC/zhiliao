@@ -68,6 +68,16 @@ export class MemoryRoomStore implements RoomStore {
     });
   }
 
+  update(snapshot: RoomSnapshot): boolean {
+    const storedRoom = this.rooms.get(snapshot.room.roomId);
+    if (!storedRoom) {
+      return false;
+    }
+
+    storedRoom.snapshot = structuredClone(snapshot);
+    return true;
+  }
+
   canAccess(roomId: string, inviteCode?: string): boolean {
     const storedRoom = this.rooms.get(roomId);
     if (!storedRoom) {

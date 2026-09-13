@@ -24,6 +24,7 @@ const envSchema = z
     WEB_ORIGIN: z.string().url().default("http://localhost:5173"),
     SESSION_SECRET: z.string().min(32).default(developmentSessionSecret),
     LOG_LEVEL: z.string().default("info"),
+    REALTIME_DISCONNECT_GRACE_MS: z.coerce.number().int().min(0).max(60000).default(10000),
     ZHIHU_OAUTH_APP_ID: optionalNonEmptyString,
     ZHIHU_OAUTH_APP_KEY: optionalNonEmptyString,
     ZHIHU_REDIRECT_URI: optionalUrl,
@@ -81,6 +82,7 @@ export const env = {
   webOrigin: parsedEnv.WEB_ORIGIN,
   sessionSecret: parsedEnv.SESSION_SECRET,
   logLevel: parsedEnv.LOG_LEVEL,
+  realtimeDisconnectGraceMilliseconds: parsedEnv.REALTIME_DISCONNECT_GRACE_MS,
   zhihuOAuth:
     parsedEnv.ZHIHU_OAUTH_APP_ID !== undefined &&
     parsedEnv.ZHIHU_OAUTH_APP_KEY !== undefined &&

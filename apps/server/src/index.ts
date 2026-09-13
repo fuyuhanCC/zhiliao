@@ -7,9 +7,12 @@ import { Server } from "socket.io";
 
 import { createApp } from "./app.js";
 import { env } from "./config/env.js";
+import { createAppDependencies } from "./dependencies.js";
 import { logger } from "./lib/logger.js";
+import { registerRealtimeGateway } from "./realtime/realtime-gateway.js";
 
-const app = createApp();
+const dependencies = createAppDependencies();
+const app = createApp(dependencies);
 const httpServer = createServer(app);
 
 const io = new Server<ClientToServerEvents, ServerToClientEvents>(httpServer, {
@@ -18,6 +21,12 @@ const io = new Server<ClientToServerEvents, ServerToClientEvents>(httpServer, {
     origin: env.webOrigin,
     credentials: true,
   },
+});
+const realtimeGateway = registerRealtimeGateway(io, {
+  sessionStore: dependencies.sessionStore,
+  roomStore: dependencies.roomStore,
+  sessionSecret: dependencies.sessionSecret,
+  disconnectGraceMilliseconds: env.realtimeDisconnectGraceMilliseconds,
 });
 
 httpServer.listen(env.port, "0.0.0.0", () => {
@@ -33,6 +42,7 @@ function shutdown(signal: NodeJS.Signals) {
 
   isShuttingDown = true;
   logger.info({ signal }, "正在关闭服务");
+  realtimeGateway.close();
   io.close(() => {
     logger.info("服务已关闭");
   });
