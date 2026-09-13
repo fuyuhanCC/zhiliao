@@ -125,7 +125,7 @@ export interface paths {
         };
         /**
          * 获取知乎热榜话题
-         * @description 服务端缓存知乎热榜；上游不可用时返回预置话题，并标记 fallback。
+         * @description 服务端缓存知乎热榜、同步对应官方房；上游不可用时返回预置话题，并标记 fallback。
          */
         get: operations["listHotTopics"];
         put?: never;

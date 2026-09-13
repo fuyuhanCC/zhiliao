@@ -2,7 +2,9 @@ import { env } from "./config/env.js";
 import { HttpZhihuOAuthClient } from "./modules/auth/zhihu-oauth-client.js";
 import { ZhihuOAuthService } from "./modules/auth/zhihu-oauth-service.js";
 import { RtcCredentialService } from "./modules/rtc-credential/rtc-credential-service.js";
+import { HotTopicRoomService } from "./modules/zhihu-gateway/hot-topic-room-service.js";
 import { RoomMaterialService } from "./modules/zhihu-gateway/room-material-service.js";
+import { HttpZhihuHotListClient } from "./modules/zhihu-gateway/zhihu-hot-list-client.js";
 import { HttpZhihuSearchClient } from "./modules/zhihu-gateway/zhihu-search-client.js";
 import { MemoryAccountStore } from "./stores/memory/account-store.js";
 import { MemoryChatStore } from "./stores/memory/chat-store.js";
@@ -23,6 +25,7 @@ export interface AppDependencies {
   chatStore: ChatStore;
   speechTurnStore: SpeechTurnStore;
   zhihuOAuthService: ZhihuOAuthService | null;
+  hotTopicRoomService?: HotTopicRoomService;
   roomMaterialService?: RoomMaterialService | null;
   rtcCredentialService: RtcCredentialService | null;
   sessionSecret: string;
@@ -37,6 +40,13 @@ export function createAppDependencies(): AppDependencies {
   const chatStore = new MemoryChatStore();
   const speechTurnStore = new MemorySpeechTurnStore();
   const oauthAttemptStore = new MemoryOAuthAttemptStore();
+  const hotListClient = env.zhihuOpenApi
+    ? new HttpZhihuHotListClient({
+        baseUrl: env.zhihuOpenApi.baseUrl,
+        accessSecret: env.zhihuOpenApi.accessSecret,
+        requestTimeoutMilliseconds: env.zhihuOpenApi.requestTimeoutMilliseconds,
+      })
+    : null;
 
   return {
     sessionStore,
@@ -44,6 +54,11 @@ export function createAppDependencies(): AppDependencies {
     roomStore,
     chatStore,
     speechTurnStore,
+    hotTopicRoomService: new HotTopicRoomService({
+      roomStore,
+      client: hotListClient,
+      cacheTtlMilliseconds: env.zhihuOpenApi?.hotTopicsCacheTtlMilliseconds ?? 5 * 60 * 1000,
+    }),
     zhihuOAuthService: env.zhihuOAuth
       ? new ZhihuOAuthService({
           appId: env.zhihuOAuth.appId,

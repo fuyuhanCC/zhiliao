@@ -24,6 +24,7 @@ export interface RoomStore {
   list(options: ListRoomsOptions): RoomListResult;
   save(snapshot: RoomSnapshot, options?: SaveRoomOptions): void;
   update(snapshot: RoomSnapshot): boolean;
+  remove(roomId: string): boolean;
   canAccess(roomId: string, inviteCode?: string): boolean;
   isSeated(roomId: string, userId: string): boolean;
 }

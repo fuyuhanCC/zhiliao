@@ -144,6 +144,8 @@ socket.emit(
 
 房间背景资料通过 `GET /rooms/{roomId}/materials?limit=5` 获取。搜索词由后端根据房间主题生成；前端不要额外传入关键词。点击资料时打开响应中的 `zhihuUrl`，新窗口链接应设置 `rel="noopener noreferrer"`。
 
+官方热榜房通过 `GET /topics/hot` 与 `GET /rooms?type=hot` 获取。后端会使用知乎热榜内容生成稳定的官方房：`room.type` 为 `hot`、`visibility` 为 `public`、`creator` 为 `null`。知乎上游不可用时返回 `source=fallback` 的预置话题与对应官方房；前端可以展示降级提示，但不应阻断进入房间。
+
 打赏只能发生在某次仍有效的当前发言中。前端发送 `reward:send` 时传入当前 `speechTurnId` 和 `amount`（仅 `5 | 10 | 50`），收款人由后端根据发言锁确定，不能由前端指定。成功 ACK 直接返回打赏者的 `remainingBalance`；房间内所有人收到不含余额的 `reward:created` 和高亮系统消息，打赏双方分别收到只发给本人的 `account:updated`。重复发送同一个 `requestId` 不会重复扣款。
 
 ## 7. 后端未完成时的前端开发

@@ -63,7 +63,7 @@ flowchart LR
 | 模块 | 职责 |
 | --- | --- |
 | `auth` | 游客会话、知乎 OAuth、加密 Cookie、权限判断 |
-| `zhihu-gateway` | 热榜、问题、回答和直答接口适配、限流与缓存 |
+| `zhihu-gateway` | 热榜、问题、回答和直答接口适配、限流、缓存与官方房同步 |
 | `room-domain` | 房间生命周期、成员与房间快照 |
 | `seat-domain` | 6 席位、等待队列、上下麦规则 |
 | `speaker-lock` | 唯一发言锁、120 秒超时、60 秒冷却 |

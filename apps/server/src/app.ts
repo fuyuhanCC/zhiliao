@@ -15,6 +15,7 @@ import { createAuthRouter } from "./modules/auth/auth-router.js";
 import { createRoomRouter } from "./modules/room/room-router.js";
 import { createRoomHistoryRouter } from "./modules/room-history/room-history-router.js";
 import { createRtcCredentialRouter } from "./modules/rtc-credential/rtc-credential-router.js";
+import { createHotTopicRouter } from "./modules/zhihu-gateway/hot-topic-router.js";
 import { createRoomMaterialRouter } from "./modules/zhihu-gateway/room-material-router.js";
 
 const publicDirectory = path.resolve(import.meta.dirname, "../public");
@@ -63,8 +64,19 @@ export function createApp(dependencies: AppDependencies = createAppDependencies(
       sessionStore: dependencies.sessionStore,
       roomStore: dependencies.roomStore,
       webOrigin: dependencies.webOrigin,
+      ...(dependencies.hotTopicRoomService
+        ? { hotTopicRoomService: dependencies.hotTopicRoomService }
+        : {}),
     }),
   );
+  if (dependencies.hotTopicRoomService) {
+    app.use(
+      "/api/v1",
+      createHotTopicRouter({
+        service: dependencies.hotTopicRoomService,
+      }),
+    );
+  }
   app.use(
     "/api/v1",
     createRoomHistoryRouter({

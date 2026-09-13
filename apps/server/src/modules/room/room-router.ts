@@ -6,6 +6,7 @@ import { sendApiError } from "../../http/api-error.js";
 import type { RoomStore } from "../../stores/room-store.js";
 import { readSession } from "../auth/session.js";
 import type { SessionStore } from "../../stores/session-store.js";
+import type { HotTopicRoomService } from "../zhihu-gateway/hot-topic-room-service.js";
 
 const roomParamsSchema = z.object({
   roomId: z.string().min(1),
@@ -60,6 +61,7 @@ export interface RoomRouterOptions {
   sessionStore: SessionStore;
   roomStore: RoomStore;
   webOrigin: string;
+  hotTopicRoomService?: HotTopicRoomService;
   roomService?: RoomService;
 }
 
@@ -72,13 +74,24 @@ export function createRoomRouter(options: RoomRouterOptions): Router {
       webOrigin: options.webOrigin,
     });
 
-  router.get("/rooms", (request, response) => {
+  router.get("/rooms", async (request, response) => {
     const parsedQuery = listRoomsQuerySchema.safeParse(request.query);
     if (!parsedQuery.success) {
       sendApiError(response, 400, "VALIDATION_ERROR", "请求参数不合法", {
         issues: parsedQuery.error.issues,
       });
       return;
+    }
+
+    if (
+      options.hotTopicRoomService &&
+      (parsedQuery.data.type === undefined || parsedQuery.data.type === "hot")
+    ) {
+      try {
+        await options.hotTopicRoomService.ensureRooms();
+      } catch {
+        // The lobby remains usable with the last synchronized rooms if an upstream refresh fails.
+      }
     }
 
     response.json(

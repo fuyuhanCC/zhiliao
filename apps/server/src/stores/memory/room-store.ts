@@ -78,6 +78,10 @@ export class MemoryRoomStore implements RoomStore {
     return true;
   }
 
+  remove(roomId: string): boolean {
+    return this.rooms.delete(roomId);
+  }
+
   canAccess(roomId: string, inviteCode?: string): boolean {
     const storedRoom = this.rooms.get(roomId);
     if (!storedRoom) {

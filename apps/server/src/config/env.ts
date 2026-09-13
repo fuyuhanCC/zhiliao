@@ -33,6 +33,7 @@ const envSchema = z
     ZHIHU_DATA_API_BASE_URL: z.url().default("https://developer.zhihu.com/api/v1"),
     ZHIHU_ACCESS_SECRET: optionalNonEmptyString,
     ZHIHU_OPENAPI_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(1000).max(30000).default(10000),
+    ZHIHU_HOT_TOPICS_CACHE_TTL_SECONDS: z.coerce.number().int().min(30).max(86400).default(300),
     ZHIHU_MATERIALS_CACHE_TTL_SECONDS: z.coerce.number().int().min(30).max(86400).default(600),
     TRTC_SDK_APP_ID: optionalPositiveInteger,
     TRTC_SECRET_KEY: optionalNonEmptyString,
@@ -104,6 +105,7 @@ export const env = {
         baseUrl: parsedEnv.ZHIHU_DATA_API_BASE_URL,
         accessSecret: parsedEnv.ZHIHU_ACCESS_SECRET,
         requestTimeoutMilliseconds: parsedEnv.ZHIHU_OPENAPI_REQUEST_TIMEOUT_MS,
+        hotTopicsCacheTtlMilliseconds: parsedEnv.ZHIHU_HOT_TOPICS_CACHE_TTL_SECONDS * 1000,
         materialsCacheTtlMilliseconds: parsedEnv.ZHIHU_MATERIALS_CACHE_TTL_SECONDS * 1000,
       }
     : null,
