@@ -2,7 +2,8 @@
 
 ## 1. 连接
 
-- Socket.IO 路径：`/socket.io`
+- Socket.IO 路径：`/api/socket.io`
+- AI Works 部署默认使用 HTTP polling；本地开发可通过 `VITE_SOCKET_TRANSPORT=auto` 自动升级 WebSocket。
 - 默认命名空间：`/`
 - 鉴权：复用 HTTP 会话 Cookie。
 - 客户端连接成功后必须发送 `room:join`，服务端返回完整房间快照。

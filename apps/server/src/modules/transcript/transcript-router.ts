@@ -13,10 +13,11 @@ import { TranscriptRequestError, type TranscriptService } from "./transcript-ser
 const maximumAudioBytes = 20 * 1024 * 1024;
 const durationSchema = z.coerce.number().int().min(1).max(120_000);
 const idempotencyKeySchema = z.string().min(1).max(200);
-const upload = multer({
+const uploadOptions = {
   storage: multer.memoryStorage(),
   limits: { fileSize: maximumAudioBytes, files: 1, fields: 1 },
-});
+};
+const upload = multer(uploadOptions);
 
 export interface TranscriptRouterOptions {
   sessionStore: SessionStore;

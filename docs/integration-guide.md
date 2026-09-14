@@ -47,14 +47,14 @@ pnpm dev
 | Web       | `http://localhost:5173`               |
 | Server    | `http://localhost:3000`               |
 | REST      | `http://localhost:5173/api/v1`        |
-| Socket.IO | `http://localhost:5173/socket.io`     |
+| Socket.IO | `http://localhost:5173/api/socket.io` |
 | 健康检查  | `http://localhost:5173/api/v1/health` |
 
 开发时浏览器只访问 Vite：
 
 ```text
 Browser :5173 ── /api/* ──────> Vite proxy ──> Server :3000
-              └─ /socket.io/* ─> Vite proxy ──> Server :3000
+              └─ /api/socket.io/* ─> Vite proxy ──> Server :3000
 ```
 
 这种方式让 Cookie、REST 和 Socket.IO 在浏览器看来保持同源。前端业务代码不得写死 `localhost:3000`。
@@ -262,7 +262,7 @@ ZHIHU_ACCESS_SECRET=<知乎开放平台 Access Secret>
 | --------------------- | ----------------------------------------------------------- |
 | REST 404              | 路径是否包含 `/api/v1`，后端路由是否已实现                  |
 | Cookie 没带上         | 是否使用相对 URL、`credentials: "include"`，Origin 是否匹配 |
-| Socket.IO 连接失败    | `path` 是否为 `/socket.io`，Vite WebSocket 代理是否生效     |
+| Socket.IO 连接失败    | `path` 是否为 `/api/socket.io`，`/api` 网关或 Vite 代理是否生效 |
 | 收到事件但页面不更新  | `roomVersion` 是否连续，是否错误地用本地缓存覆盖快照        |
 | OAuth 回调失败        | 回调 URL 是否在知乎后台登记，环境变量是否与当前地址一致     |
 | 浏览器无法开麦        | 页面是否为 localhost 或 HTTPS，麦克风权限和设备是否可用     |

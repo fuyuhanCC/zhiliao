@@ -10,5 +10,8 @@ export function createAppSocket(): AppSocket {
     path: runtimeConfig.socketPath,
     withCredentials: true,
     autoConnect: false,
+    ...(runtimeConfig.socketTransport === "polling"
+      ? { transports: ["polling"] as ["polling"] }
+      : {}),
   });
 }

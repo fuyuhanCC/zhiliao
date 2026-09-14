@@ -13,15 +13,14 @@ export default defineConfig(({ mode }) => {
     server: {
       port: 5173,
       proxy: {
-        "/api": proxyTarget,
-        "/socket.io": {
+        "/api": {
           target: proxyTarget,
           ws: true,
         },
       },
     },
     build: {
-      outDir: "../server/public",
+      outDir: "dist",
       emptyOutDir: true,
     },
   };

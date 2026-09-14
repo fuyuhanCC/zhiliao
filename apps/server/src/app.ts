@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import path from "node:path";
 
-import { APP_VERSION } from "@zhiliao/shared";
+import { APP_VERSION, SOCKET_IO_PATH } from "@zhiliao/shared";
 import cookieParser from "cookie-parser";
 import cors from "cors";
 import express, { type Express } from "express";
@@ -20,7 +20,7 @@ import { createTranscriptRouter } from "./modules/transcript/transcript-router.j
 import { createHotTopicRouter } from "./modules/zhihu-gateway/hot-topic-router.js";
 import { createRoomMaterialRouter } from "./modules/zhihu-gateway/room-material-router.js";
 
-const publicDirectory = path.resolve(import.meta.dirname, "../public");
+const publicDirectory = path.resolve(import.meta.dirname, "../../web/dist");
 const webEntryFile = path.join(publicDirectory, "index.html");
 
 export function createApp(dependencies: AppDependencies = createAppDependencies()): Express {
@@ -129,7 +129,7 @@ export function createApp(dependencies: AppDependencies = createAppDependencies(
   if (existsSync(webEntryFile)) {
     app.use(express.static(publicDirectory));
     app.use((request, response, next) => {
-      if (request.method !== "GET" || request.path.startsWith("/socket.io")) {
+      if (request.method !== "GET" || request.path.startsWith(SOCKET_IO_PATH)) {
         next();
         return;
       }

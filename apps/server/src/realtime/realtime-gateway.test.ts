@@ -7,6 +7,7 @@ import type {
   RewardSendResult,
   ServerToClientEvents,
 } from "@zhiliao/shared";
+import { SOCKET_IO_PATH } from "@zhiliao/shared";
 import { Server } from "socket.io";
 import { io as createClient, type Socket as ClientSocket } from "socket.io-client";
 import request from "supertest";
@@ -77,10 +78,14 @@ async function listen(server: HttpServer): Promise<number> {
   return address.port;
 }
 
-async function connectClient(port: number, session: UserSession): Promise<TestClient> {
+async function connectClient(
+  port: number,
+  session: UserSession,
+  transport: "polling" | "websocket" = "websocket",
+): Promise<TestClient> {
   const socket = createClient(`http://127.0.0.1:${port}`, {
-    path: "/socket.io",
-    transports: ["websocket"],
+    path: SOCKET_IO_PATH,
+    transports: [transport],
     extraHeaders: { Cookie: signSessionCookie(session.sessionId) },
     forceNew: true,
     reconnection: false,
@@ -168,7 +173,7 @@ describe("realtime gateway", () => {
     });
     httpServer = createServer(app);
     ioServer = new Server<ClientToServerEvents, ServerToClientEvents>(httpServer, {
-      path: "/socket.io",
+      path: SOCKET_IO_PATH,
     });
     gateway = registerRealtimeGateway(ioServer, {
       sessionStore,
@@ -181,7 +186,7 @@ describe("realtime gateway", () => {
       disconnectGraceMilliseconds: 20,
     });
     const port = await listen(httpServer);
-    const speaker = await connectClient(port, speakerSession);
+    const speaker = await connectClient(port, speakerSession, "polling");
     const guest = await connectClient(port, guestSession);
 
     expect((await joinRoom(speaker, roomId, "join-speaker")).ok).toBe(true);
@@ -387,7 +392,7 @@ describe("realtime gateway", () => {
     });
     httpServer = createServer(app);
     ioServer = new Server<ClientToServerEvents, ServerToClientEvents>(httpServer, {
-      path: "/socket.io",
+      path: SOCKET_IO_PATH,
     });
     gateway = registerRealtimeGateway(ioServer, {
       sessionStore,
@@ -399,7 +404,7 @@ describe("realtime gateway", () => {
     });
     const port = await listen(httpServer);
     const socket = createClient(`http://127.0.0.1:${port}`, {
-      path: "/socket.io",
+      path: SOCKET_IO_PATH,
       transports: ["websocket"],
       reconnection: false,
       autoConnect: false,

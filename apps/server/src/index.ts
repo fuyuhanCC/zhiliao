@@ -2,7 +2,11 @@ import "./config/load-root-env.js";
 
 import { createServer } from "node:http";
 
-import type { ClientToServerEvents, ServerToClientEvents } from "@zhiliao/shared";
+import {
+  SOCKET_IO_PATH,
+  type ClientToServerEvents,
+  type ServerToClientEvents,
+} from "@zhiliao/shared";
 import { Server } from "socket.io";
 
 import { createApp } from "./app.js";
@@ -16,7 +20,7 @@ const app = createApp(dependencies);
 const httpServer = createServer(app);
 
 const io = new Server<ClientToServerEvents, ServerToClientEvents>(httpServer, {
-  path: "/socket.io",
+  path: SOCKET_IO_PATH,
   cors: {
     origin: env.webOrigin,
     credentials: true,
