@@ -1,10 +1,14 @@
 import type {
+  AccountUpdatedEvent,
   CommandAck,
   CommandAckFailure,
   ChatCreatedData,
   CooldownUpdatedData,
   PresenceUpdatedData,
   QueueUpdatedData,
+  ReactionCreatedData,
+  RewardCreatedData,
+  RewardSendResult,
   RoomClosedData,
   RoomEvent,
   SeatRequestResult,
@@ -13,6 +17,8 @@ import type {
   SpeakerChangedData,
   SpeakerTickData,
   SpeechClosedData,
+  SummaryUpdatedData,
+  TranscriptUpdatedData,
 } from "@zhiliao/shared";
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -37,7 +43,9 @@ export type RoomAction =
   | "leave-seat"
   | "acquire-speaker"
   | "release-speaker"
-  | "send-chat";
+  | "send-chat"
+  | "like-speaker"
+  | "send-reward";
 
 interface UseRoomRealtimeOptions {
   roomId: string;
@@ -45,6 +53,12 @@ interface UseRoomRealtimeOptions {
   snapshot: RoomSnapshot | null;
   onSnapshot: (snapshot: RoomSnapshot) => void;
   onChatCreated: (message: ChatCreatedData) => void;
+  onSpeechClosed?: (event: SpeechClosedData) => void;
+  onTranscriptUpdated?: (event: TranscriptUpdatedData) => void;
+  onSummaryUpdated?: (event: SummaryUpdatedData) => void;
+  onReactionCreated?: (event: ReactionCreatedData) => void;
+  onRewardCreated?: (event: RewardCreatedData) => void;
+  onAccountUpdated?: (event: AccountUpdatedEvent) => void;
   onRoomClosed: () => void;
 }
 
@@ -61,6 +75,11 @@ interface UseRoomRealtimeResult {
   acquireSpeaker: () => Promise<CommandAck<SpeakerAcquireResult> | null>;
   releaseSpeaker: (speechTurnId: string) => Promise<CommandAck | null>;
   sendChat: (content: string) => Promise<CommandAck | null>;
+  likeSpeaker: (speechTurnId: string) => Promise<CommandAck | null>;
+  sendReward: (
+    speechTurnId: string,
+    amount: 5 | 10 | 50,
+  ) => Promise<CommandAck<RewardSendResult> | null>;
 }
 
 interface SocketError extends Error {
@@ -86,6 +105,12 @@ export function useRoomRealtime({
   snapshot,
   onSnapshot,
   onChatCreated,
+  onSpeechClosed,
+  onTranscriptUpdated,
+  onSummaryUpdated,
+  onReactionCreated,
+  onRewardCreated,
+  onAccountUpdated,
   onRoomClosed,
 }: UseRoomRealtimeOptions): UseRoomRealtimeResult {
   const [status, setStatus] = useState<RoomConnectionStatus>("idle");
@@ -96,6 +121,12 @@ export function useRoomRealtime({
   const snapshotRef = useRef(snapshot);
   const onSnapshotRef = useRef(onSnapshot);
   const onChatCreatedRef = useRef(onChatCreated);
+  const onSpeechClosedRef = useRef(onSpeechClosed);
+  const onTranscriptUpdatedRef = useRef(onTranscriptUpdated);
+  const onSummaryUpdatedRef = useRef(onSummaryUpdated);
+  const onReactionCreatedRef = useRef(onReactionCreated);
+  const onRewardCreatedRef = useRef(onRewardCreated);
+  const onAccountUpdatedRef = useRef(onAccountUpdated);
   const onRoomClosedRef = useRef(onRoomClosed);
   const socketRef = useRef<AppSocket | null>(null);
   const joinedRef = useRef(false);
@@ -106,8 +137,25 @@ export function useRoomRealtime({
     snapshotRef.current = snapshot;
     onSnapshotRef.current = onSnapshot;
     onChatCreatedRef.current = onChatCreated;
+    onSpeechClosedRef.current = onSpeechClosed;
+    onTranscriptUpdatedRef.current = onTranscriptUpdated;
+    onSummaryUpdatedRef.current = onSummaryUpdated;
+    onReactionCreatedRef.current = onReactionCreated;
+    onRewardCreatedRef.current = onRewardCreated;
+    onAccountUpdatedRef.current = onAccountUpdated;
     onRoomClosedRef.current = onRoomClosed;
-  }, [onChatCreated, onRoomClosed, onSnapshot, snapshot]);
+  }, [
+    onAccountUpdated,
+    onChatCreated,
+    onReactionCreated,
+    onRewardCreated,
+    onRoomClosed,
+    onSnapshot,
+    onSpeechClosed,
+    onSummaryUpdated,
+    onTranscriptUpdated,
+    snapshot,
+  ]);
 
   useEffect(() => {
     if (!enabled) {
@@ -274,6 +322,9 @@ export function useRoomRealtime({
       applyVersionedEvent(event, (current, eventVersion) =>
         advanceRoomVersion(current, eventVersion),
       );
+      if (event.roomId === roomId) {
+        onSpeechClosedRef.current?.(event.data);
+      }
     }
 
     function handleChatCreated(event: RoomEvent<ChatCreatedData>) {
@@ -281,6 +332,32 @@ export function useRoomRealtime({
         onChatCreatedRef.current(message);
         return advanceRoomVersion(current, eventVersion);
       });
+    }
+
+    function handleReactionCreated(event: RoomEvent<ReactionCreatedData>) {
+      applyVersionedEvent(event, (current, eventVersion, reaction) => {
+        onReactionCreatedRef.current?.(reaction);
+        return advanceRoomVersion(current, eventVersion);
+      });
+    }
+
+    function handleRewardCreated(event: RoomEvent<RewardCreatedData>) {
+      applyVersionedEvent(event, (current, eventVersion, reward) => {
+        onRewardCreatedRef.current?.(reward);
+        return advanceRoomVersion(current, eventVersion);
+      });
+    }
+
+    function handleTranscriptUpdated(event: RoomEvent<TranscriptUpdatedData>) {
+      if (event.roomId !== roomId) return;
+      calibrateClock(event.serverTime);
+      onTranscriptUpdatedRef.current?.(event.data);
+    }
+
+    function handleSummaryUpdated(event: RoomEvent<SummaryUpdatedData>) {
+      if (event.roomId !== roomId) return;
+      calibrateClock(event.serverTime);
+      onSummaryUpdatedRef.current?.(event.data);
     }
 
     function handleRoomClosed(event: RoomEvent<RoomClosedData>) {
@@ -319,7 +396,15 @@ export function useRoomRealtime({
     socket.on("speaker:tick", handleSpeakerTick);
     socket.on("cooldown:updated", handleCooldownUpdated);
     socket.on("chat:created", handleChatCreated);
+    socket.on("reaction:created", handleReactionCreated);
+    socket.on("reward:created", handleRewardCreated);
     socket.on("speech:closed", handleSpeechClosed);
+    socket.on("transcript:updated", handleTranscriptUpdated);
+    socket.on("summary:updated", handleSummaryUpdated);
+    socket.on("account:updated", (event) => {
+      calibrateClock(event.serverTime);
+      onAccountUpdatedRef.current?.(event);
+    });
     socket.on("room:closed", handleRoomClosed);
     setStatus("connecting");
     setError(null);
@@ -469,6 +554,45 @@ export function useRoomRealtime({
     [executeCommand, roomId],
   );
 
+  const likeSpeaker = useCallback(
+    (speechTurnId: string) =>
+      executeCommand<Record<string, never>>(
+        "like-speaker",
+        (socket, commandRequestId, acknowledge) => {
+          socket.emit(
+            "reaction:like",
+            {
+              requestId: commandRequestId,
+              roomId,
+              speechTurnId,
+            },
+            acknowledge,
+          );
+        },
+      ),
+    [executeCommand, roomId],
+  );
+
+  const sendReward = useCallback(
+    (speechTurnId: string, amount: 5 | 10 | 50) =>
+      executeCommand<RewardSendResult>(
+        "send-reward",
+        (socket, commandRequestId, acknowledge) => {
+          socket.emit(
+            "reward:send",
+            {
+              requestId: commandRequestId,
+              roomId,
+              speechTurnId,
+              amount,
+            },
+            acknowledge,
+          );
+        },
+      ),
+    [executeCommand, roomId],
+  );
+
   return {
     status,
     error,
@@ -482,5 +606,7 @@ export function useRoomRealtime({
     acquireSpeaker,
     releaseSpeaker,
     sendChat,
+    likeSpeaker,
+    sendReward,
   };
 }

@@ -21,12 +21,14 @@ import {
   type SpeechTurnPage,
   type SummaryResource,
 } from "../lib/api-client";
+import { SpeechTurnRecorder, uploadSpeechTurnAudio } from "../lib/speech-turn-recorder";
 import { useSessionStore } from "../stores/session-store";
 
 type LoadStatus = "loading" | "ready" | "error";
 const maximumVisibleMessages = 100;
 const maximumVisibleDanmakuMessages = 16;
 const danmakuLaneCount = 5;
+const rewardAmounts = [5, 10, 50] as const;
 
 function mergeMessages(current: ChatMessage[], incoming: ChatMessage[]): ChatMessage[] {
   const seen = new Set<string>();
@@ -53,6 +55,21 @@ function userInitial(displayName: string): string {
 
 function wait(milliseconds: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
+}
+
+function stopMediaStream(stream: MediaStream | null): void {
+  for (const track of stream?.getTracks() ?? []) {
+    track.stop();
+  }
+}
+
+async function responseErrorMessage(response: Response, fallback: string): Promise<string> {
+  try {
+    const body = (await response.json()) as { error?: { message?: unknown } };
+    return typeof body.error?.message === "string" ? body.error.message : fallback;
+  } catch {
+    return fallback;
+  }
 }
 
 function connectionLabel(status: RoomConnectionStatus): string {
@@ -138,6 +155,7 @@ export function RoomPage() {
   const currentUser = useSessionStore((state) => state.session?.user);
   const currentUserId = currentUser?.userId;
   const sessionStatus = useSessionStore((state) => state.status);
+  const updateAccount = useSessionStore((state) => state.updateAccount);
   const [pageStatus, setPageStatus] = useState<LoadStatus>("loading");
   const [pageError, setPageError] = useState<string | null>(null);
   const [reloadVersion, setReloadVersion] = useState(0);
@@ -163,6 +181,19 @@ export function RoomPage() {
   const messageListRef = useRef<HTMLDivElement | null>(null);
   const summaryRequestVersion = useRef<number | null>(null);
   const summaryRequestSequence = useRef(0);
+  const speechRecorderRef = useRef<SpeechTurnRecorder | null>(null);
+  const speechRecordingStreamRef = useRef<MediaStream | null>(null);
+  const recordingSpeechTurnIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    return () => {
+      speechRecorderRef.current?.cancel();
+      speechRecorderRef.current = null;
+      stopMediaStream(speechRecordingStreamRef.current);
+      speechRecordingStreamRef.current = null;
+      recordingSpeechTurnIdRef.current = null;
+    };
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -274,6 +305,27 @@ export function RoomPage() {
     }
   }, [roomId]);
 
+  const refreshSpeechTurns = useCallback(async () => {
+    setSpeechTurnsError(null);
+    try {
+      const page = await listSpeechTurns(roomId);
+      setSpeechTurnsPage(page);
+      setSpeechTurnsStatus("ready");
+    } catch (error) {
+      setSpeechTurnsStatus("error");
+      setSpeechTurnsError(errorMessage(error, "发言记录加载失败"));
+    }
+  }, [roomId]);
+
+  const refreshRoomSummary = useCallback(async () => {
+    setSummaryError(null);
+    try {
+      setSummary(await getRoomSummary(roomId));
+    } catch (error) {
+      setSummaryError(errorMessage(error, "AI 总结加载失败"));
+    }
+  }, [roomId]);
+
   useEffect(() => {
     const transcriptVersion = speechTurnsPage?.transcriptVersion ?? 0;
     const alreadyCurrent =
@@ -301,12 +353,90 @@ export function RoomPage() {
     setMessagesError(null);
   }, []);
 
+  const startSpeechRecording = useCallback(async (speechTurnId: string) => {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setRoomActionNotice("当前浏览器不支持发言录音，实时语音仍可继续");
+      return;
+    }
+
+    let stream: MediaStream | null = null;
+    try {
+      speechRecorderRef.current?.cancel();
+      stopMediaStream(speechRecordingStreamRef.current);
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new SpeechTurnRecorder();
+      recorder.start(stream);
+      speechRecorderRef.current = recorder;
+      speechRecordingStreamRef.current = stream;
+      recordingSpeechTurnIdRef.current = speechTurnId;
+    } catch (error) {
+      stopMediaStream(stream);
+      setRoomActionNotice(errorMessage(error, "发言录音启动失败，实时语音仍可继续"));
+    }
+  }, []);
+
+  const finishSpeechRecording = useCallback(
+    async (speechTurnId: string) => {
+      const recorder = speechRecorderRef.current;
+      if (!recorder || recordingSpeechTurnIdRef.current !== speechTurnId) {
+        void refreshSpeechTurns();
+        return;
+      }
+
+      speechRecorderRef.current = null;
+      recordingSpeechTurnIdRef.current = null;
+      try {
+        const recording = await recorder.stop(speechTurnId);
+        stopMediaStream(speechRecordingStreamRef.current);
+        speechRecordingStreamRef.current = null;
+        const response = await uploadSpeechTurnAudio({
+          roomId,
+          speechTurnId,
+          recording,
+          idempotencyKey: crypto.randomUUID(),
+        });
+        if (!response.ok) {
+          setRoomActionNotice(await responseErrorMessage(response, "发言录音上传失败"));
+          return;
+        }
+        setRoomActionNotice("发言录音已上传，正在转写");
+      } catch (error) {
+        stopMediaStream(speechRecordingStreamRef.current);
+        speechRecordingStreamRef.current = null;
+        setRoomActionNotice(errorMessage(error, "发言录音上传失败"));
+      } finally {
+        void refreshSpeechTurns();
+      }
+    },
+    [refreshSpeechTurns, roomId],
+  );
+
   const realtime = useRoomRealtime({
     roomId,
     enabled: pageStatus === "ready" && sessionStatus === "ready" && snapshot !== null,
     snapshot,
     onSnapshot: setSnapshot,
     onChatCreated: handleChatCreated,
+    onSpeechClosed: (event) => {
+      if (event.speakerUserId === currentUserId) {
+        void finishSpeechRecording(event.speechTurnId);
+      } else {
+        void refreshSpeechTurns();
+      }
+    },
+    onTranscriptUpdated: () => {
+      void refreshSpeechTurns();
+    },
+    onSummaryUpdated: () => {
+      void refreshRoomSummary();
+    },
+    onReactionCreated: () => {
+      void refreshSpeechTurns();
+    },
+    onRewardCreated: () => {
+      void refreshSpeechTurns();
+    },
+    onAccountUpdated: (event) => updateAccount(event.data),
     onRoomClosed: handleRoomClosed,
   });
 
@@ -380,6 +510,7 @@ export function RoomPage() {
 
     const published = await roomAudio.startPublishing();
     if (published.ok) {
+      void startSpeechRecording(ack.data.speechTurnId);
       setRoomActionNotice("已获得发言权，麦克风已开启");
       return;
     }
@@ -416,6 +547,26 @@ export function RoomPage() {
     if (!content || roomActionDisabled) return;
     const ack = await realtime.sendChat(content);
     if (ack?.ok) setChatDraft("");
+  }
+
+  async function likeCurrentSpeaker() {
+    const speechTurnId = snapshot?.speakerLock?.speechTurnId;
+    if (!speechTurnId || roomActionDisabled) return;
+    const ack = await realtime.likeSpeaker(speechTurnId);
+    if (ack?.ok) {
+      setRoomActionNotice("已赞同当前发言");
+      void refreshSpeechTurns();
+    }
+  }
+
+  async function rewardCurrentSpeaker(amount: (typeof rewardAmounts)[number]) {
+    const speechTurnId = snapshot?.speakerLock?.speechTurnId;
+    if (!speechTurnId || roomActionDisabled) return;
+    const ack = await realtime.sendReward(speechTurnId, amount);
+    if (ack?.ok) {
+      setRoomActionNotice(`已打赏 ${amount} 知豆，余额 ${ack.data.remainingBalance}`);
+      void refreshSpeechTurns();
+    }
   }
 
   const danmakuMessages = useMemo(
@@ -482,6 +633,8 @@ export function RoomPage() {
   );
   const actionPending = realtime.pendingAction !== null;
   const roomActionDisabled = realtime.status !== "connected" || actionPending;
+  const currentSpeechTurnId = speakerLock?.speechTurnId ?? null;
+  const speakerActionDisabled = roomActionDisabled || !currentSpeechTurnId || !speaker;
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
@@ -781,19 +934,21 @@ export function RoomPage() {
 
         <footer className="sticky bottom-4 mt-4 flex flex-wrap items-center gap-2 rounded-2xl border border-slate-200 bg-white/95 p-3 shadow-xl shadow-slate-200/70 backdrop-blur">
           <button
-            className="cursor-not-allowed rounded-xl px-4 py-2.5 text-sm text-slate-400"
-            disabled
+            className="rounded-xl px-4 py-2.5 text-sm text-slate-600 transition hover:bg-blue-50 hover:text-blue-600 disabled:cursor-not-allowed disabled:text-slate-300 disabled:hover:bg-transparent"
+            disabled={speakerActionDisabled}
+            onClick={() => void likeCurrentSpeaker()}
             type="button"
           >
             △ 赞同
           </button>
           <span className="hidden h-6 w-px bg-slate-200 sm:block" />
           <span className="text-xs text-slate-400">打赏</span>
-          {[5, 10, 50].map((amount) => (
+          {rewardAmounts.map((amount) => (
             <button
-              className="cursor-not-allowed rounded-full border border-slate-200 px-3.5 py-2 text-sm text-slate-300"
-              disabled
+              className="rounded-full border border-slate-200 px-3.5 py-2 text-sm text-slate-500 transition hover:border-orange-200 hover:bg-orange-50 hover:text-orange-600 disabled:cursor-not-allowed disabled:text-slate-300 disabled:hover:border-slate-200 disabled:hover:bg-transparent"
+              disabled={speakerActionDisabled}
               key={amount}
+              onClick={() => void rewardCurrentSpeaker(amount)}
               type="button"
             >
               {amount}

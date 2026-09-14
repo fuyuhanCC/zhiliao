@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-import { ensureSession, getHealth, type SessionResponse } from "../lib/api-client";
+import { ensureSession, getHealth, type SessionResponse, type UserAccount } from "../lib/api-client";
 
 type SessionStatus = "idle" | "loading" | "ready" | "error";
 
@@ -9,6 +9,7 @@ interface SessionState {
   status: SessionStatus;
   error: string | null;
   bootstrap: () => Promise<void>;
+  updateAccount: (account: UserAccount) => void;
 }
 
 let bootstrapPromise: Promise<void> | null = null;
@@ -39,5 +40,20 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       });
 
     return bootstrapPromise;
+  },
+  updateAccount: (account) => {
+    const session = get().session;
+    if (!session) return;
+    set({
+      session: {
+        ...session,
+        account,
+        user: {
+          ...session.user,
+          level: account.level,
+          levelTitle: account.levelTitle,
+        },
+      },
+    });
   },
 }));

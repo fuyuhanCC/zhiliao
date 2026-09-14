@@ -17,6 +17,7 @@ export type SpeechTurn = components["schemas"]["SpeechTurn"];
 export type SpeechTurnPage = components["schemas"]["SpeechTurnPage"];
 export type SummaryResource = components["schemas"]["SummaryResource"];
 export type CreateRoomResponse = components["schemas"]["CreateRoomResponse"];
+export type UserAccount = components["schemas"]["UserAccount"];
 
 interface ApiErrorPayload {
   error?: {
