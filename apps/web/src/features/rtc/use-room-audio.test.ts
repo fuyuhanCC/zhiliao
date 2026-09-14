@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { startLocalAudioWhileRequested } from "./use-room-audio";
+import { createSpeechRecordingStream, startLocalAudioWhileRequested } from "./use-room-audio";
 
 describe("startLocalAudioWhileRequested", () => {
   it("stops audio if the publishing request is cancelled while permission is pending", async () => {
@@ -30,5 +30,25 @@ describe("startLocalAudioWhileRequested", () => {
       startLocalAudioWhileRequested(startLocalAudio, stopLocalAudio, () => true),
     ).resolves.toBe(true);
     expect(stopLocalAudio).not.toHaveBeenCalled();
+  });
+});
+
+describe("createSpeechRecordingStream", () => {
+  it("records from a cloned track so TRTC can stop its own track independently", () => {
+    const clonedTrack = { id: "recording-track" } as MediaStreamTrack;
+    const localTrack = { clone: vi.fn(() => clonedTrack) } as unknown as MediaStreamTrack;
+    const recordingStream = { id: "recording-stream" } as unknown as MediaStream;
+    const createStream = vi.fn(() => recordingStream);
+
+    expect(createSpeechRecordingStream(localTrack, createStream)).toBe(recordingStream);
+    expect(localTrack.clone).toHaveBeenCalledOnce();
+    expect(createStream).toHaveBeenCalledWith(clonedTrack);
+  });
+
+  it("keeps realtime audio usable when the SDK cannot expose a local track", () => {
+    const createStream = vi.fn();
+
+    expect(createSpeechRecordingStream(null, createStream)).toBeUndefined();
+    expect(createStream).not.toHaveBeenCalled();
   });
 });

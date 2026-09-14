@@ -183,7 +183,7 @@ socket.emit(
 
 ### 6.1 单次发言录音、转写与总结
 
-前端使用 `apps/web/src/lib/speech-turn-recorder.ts` 中的 `SpeechTurnRecorder`。在 `speaker:acquire` 成功 ACK 后开始录制；收到对应 `speech:closed`（主动闭麦也会产生该事件）后停止录制，并调用 `uploadSpeechTurnAudio`。不要录制整场房间，也不要把远端混音上传。
+前端使用 `apps/web/src/lib/speech-turn-recorder.ts` 中的 `SpeechTurnRecorder`。在 `speaker:acquire` 成功 ACK 且 TRTC 开始发布后，复制 TRTC 的本地麦克风音轨用于本轮录制，避免再次申请麦克风；收到对应 `speech:closed`（主动闭麦也会产生该事件）后停止录制，并调用 `uploadSpeechTurnAudio`。不要录制整场房间，也不要把远端混音上传。上传或 ASR 失败时，浏览器会在当前页面会话内保留该段录音，发言者可在辩论日志中重试；刷新或关闭页面后不保留原始录音。
 
 浏览器必须从 `audio/mp4`（m4a）和 `audio/ogg;codecs=opus` 中选择实际支持的格式。腾讯云极速版 ASR 不接受 WebM，因此仅支持 `audio/webm` 的浏览器要提示“当前浏览器不支持转写”，但这不影响 TRTC 实时语音。
 

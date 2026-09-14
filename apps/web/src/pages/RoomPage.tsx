@@ -21,7 +21,11 @@ import {
   type SpeechTurnPage,
   type SummaryResource,
 } from "../lib/api-client";
-import { SpeechTurnRecorder, uploadSpeechTurnAudio } from "../lib/speech-turn-recorder";
+import {
+  type RecordedSpeechTurn,
+  SpeechTurnRecorder,
+  uploadSpeechTurnAudio,
+} from "../lib/speech-turn-recorder";
 import { useSessionStore } from "../stores/session-store";
 
 type LoadStatus = "loading" | "ready" | "error";
@@ -29,6 +33,11 @@ const maximumVisibleMessages = 100;
 const maximumVisibleDanmakuMessages = 16;
 const danmakuLaneCount = 5;
 const rewardAmounts = [5, 10, 50] as const;
+
+interface SpeechRecordingStopTask {
+  speechTurnId: string;
+  promise: Promise<RecordedSpeechTurn | null>;
+}
 
 function mergeMessages(current: ChatMessage[], incoming: ChatMessage[]): ChatMessage[] {
   const seen = new Set<string>();
@@ -177,6 +186,9 @@ export function RoomPage() {
   const [danmakuEnabled, setDanmakuEnabled] = useState(true);
   const [accountOpen, setAccountOpen] = useState(false);
   const [roomActionNotice, setRoomActionNotice] = useState<string | null>(null);
+  const [retryableSpeechTurnIds, setRetryableSpeechTurnIds] = useState<Set<string>>(
+    () => new Set(),
+  );
   const [clockTick, setClockTick] = useState(() => Date.now());
   const messageListRef = useRef<HTMLDivElement | null>(null);
   const summaryRequestVersion = useRef<number | null>(null);
@@ -184,16 +196,31 @@ export function RoomPage() {
   const speechRecorderRef = useRef<SpeechTurnRecorder | null>(null);
   const speechRecordingStreamRef = useRef<MediaStream | null>(null);
   const recordingSpeechTurnIdRef = useRef<string | null>(null);
+  const speechRecordingStopTaskRef = useRef<SpeechRecordingStopTask | null>(null);
+  const pendingSpeechRecordingsRef = useRef(new Map<string, RecordedSpeechTurn>());
+  const speechUploadsInFlightRef = useRef(new Set<string>());
+  const speechUploadControllersRef = useRef(new Map<string, AbortController>());
+  const realtimeStatusRef = useRef<RoomConnectionStatus>("idle");
+  const activeRoomIdRef = useRef(roomId);
+  activeRoomIdRef.current = roomId;
 
   useEffect(() => {
+    setRetryableSpeechTurnIds(new Set());
     return () => {
       speechRecorderRef.current?.cancel();
       speechRecorderRef.current = null;
       stopMediaStream(speechRecordingStreamRef.current);
       speechRecordingStreamRef.current = null;
       recordingSpeechTurnIdRef.current = null;
+      speechRecordingStopTaskRef.current = null;
+      pendingSpeechRecordingsRef.current.clear();
+      speechUploadsInFlightRef.current.clear();
+      for (const controller of speechUploadControllersRef.current.values()) {
+        controller.abort();
+      }
+      speechUploadControllersRef.current.clear();
     };
-  }, []);
+  }, [roomId]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -353,62 +380,140 @@ export function RoomPage() {
     setMessagesError(null);
   }, []);
 
-  const startSpeechRecording = useCallback(async (speechTurnId: string) => {
-    if (!navigator.mediaDevices?.getUserMedia) {
-      setRoomActionNotice("当前浏览器不支持发言录音，实时语音仍可继续");
-      return;
-    }
-
-    let stream: MediaStream | null = null;
-    try {
-      speechRecorderRef.current?.cancel();
-      stopMediaStream(speechRecordingStreamRef.current);
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const recorder = new SpeechTurnRecorder();
-      recorder.start(stream);
-      speechRecorderRef.current = recorder;
-      speechRecordingStreamRef.current = stream;
-      recordingSpeechTurnIdRef.current = speechTurnId;
-    } catch (error) {
-      stopMediaStream(stream);
-      setRoomActionNotice(errorMessage(error, "发言录音启动失败，实时语音仍可继续"));
-    }
+  const markSpeechTurnRetryable = useCallback((speechTurnId: string, retryable: boolean) => {
+    setRetryableSpeechTurnIds((current) => {
+      const next = new Set(current);
+      if (retryable) next.add(speechTurnId);
+      else next.delete(speechTurnId);
+      return next;
+    });
   }, []);
 
-  const finishSpeechRecording = useCallback(
-    async (speechTurnId: string) => {
-      const recorder = speechRecorderRef.current;
-      if (!recorder || recordingSpeechTurnIdRef.current !== speechTurnId) {
-        void refreshSpeechTurns();
-        return;
+  const startSpeechRecording = useCallback(
+    (speechTurnId: string, stream: MediaStream | undefined): boolean => {
+      if (!stream) {
+        setRoomActionNotice("麦克风已开启，但浏览器未提供可录制音轨");
+        return false;
       }
 
-      speechRecorderRef.current = null;
-      recordingSpeechTurnIdRef.current = null;
       try {
-        const recording = await recorder.stop(speechTurnId);
+        speechRecorderRef.current?.cancel();
         stopMediaStream(speechRecordingStreamRef.current);
-        speechRecordingStreamRef.current = null;
+        const recorder = new SpeechTurnRecorder();
+        recorder.start(stream);
+        speechRecorderRef.current = recorder;
+        speechRecordingStreamRef.current = stream;
+        recordingSpeechTurnIdRef.current = speechTurnId;
+        markSpeechTurnRetryable(speechTurnId, false);
+        return true;
+      } catch (error) {
+        stopMediaStream(stream);
+        setRoomActionNotice(errorMessage(error, "发言录音启动失败，实时语音仍可继续"));
+        return false;
+      }
+    },
+    [markSpeechTurnRetryable],
+  );
+
+  const stopSpeechRecording = useCallback(
+    async (speechTurnId: string): Promise<RecordedSpeechTurn | null> => {
+      const pending = pendingSpeechRecordingsRef.current.get(speechTurnId);
+      if (pending) return pending;
+
+      const existingTask = speechRecordingStopTaskRef.current;
+      if (existingTask?.speechTurnId === speechTurnId) return existingTask.promise;
+
+      const recorder = speechRecorderRef.current;
+      if (!recorder || recordingSpeechTurnIdRef.current !== speechTurnId) return null;
+
+      const stream = speechRecordingStreamRef.current;
+      speechRecorderRef.current = null;
+      speechRecordingStreamRef.current = null;
+      recordingSpeechTurnIdRef.current = null;
+
+      const task: SpeechRecordingStopTask = {
+        speechTurnId,
+        promise: Promise.resolve(null),
+      };
+      task.promise = (async () => {
+        try {
+          const recording = await recorder.stop(speechTurnId);
+          if (activeRoomIdRef.current !== roomId) return null;
+          pendingSpeechRecordingsRef.current.set(speechTurnId, recording);
+          return recording;
+        } catch (error) {
+          if (activeRoomIdRef.current === roomId) {
+            setRoomActionNotice(errorMessage(error, "本次发言录音保存失败"));
+          }
+          return null;
+        } finally {
+          stopMediaStream(stream);
+          if (speechRecordingStopTaskRef.current === task) {
+            speechRecordingStopTaskRef.current = null;
+          }
+        }
+      })();
+      speechRecordingStopTaskRef.current = task;
+      return task.promise;
+    },
+    [roomId],
+  );
+
+  const uploadPendingSpeechRecording = useCallback(
+    async (speechTurnId: string, recording?: RecordedSpeechTurn | null) => {
+      const savedRecording = recording ?? pendingSpeechRecordingsRef.current.get(speechTurnId);
+      if (!savedRecording || speechUploadsInFlightRef.current.has(speechTurnId)) return;
+
+      const controller = new AbortController();
+      speechUploadsInFlightRef.current.add(speechTurnId);
+      speechUploadControllersRef.current.set(speechTurnId, controller);
+      markSpeechTurnRetryable(speechTurnId, false);
+      try {
         const response = await uploadSpeechTurnAudio({
           roomId,
           speechTurnId,
-          recording,
+          recording: savedRecording,
           idempotencyKey: crypto.randomUUID(),
+          signal: controller.signal,
         });
+        if (controller.signal.aborted || activeRoomIdRef.current !== roomId) return;
         if (!response.ok) {
+          markSpeechTurnRetryable(speechTurnId, true);
           setRoomActionNotice(await responseErrorMessage(response, "发言录音上传失败"));
           return;
         }
-        setRoomActionNotice("发言录音已上传，正在转写");
+        const result = (await response.json()) as { status?: unknown };
+        if (result.status === "ready") {
+          pendingSpeechRecordingsRef.current.delete(speechTurnId);
+        }
+        setRoomActionNotice(
+          result.status === "ready" ? "本次发言转写已完成" : "发言录音已上传，正在转写",
+        );
       } catch (error) {
-        stopMediaStream(speechRecordingStreamRef.current);
-        speechRecordingStreamRef.current = null;
-        setRoomActionNotice(errorMessage(error, "发言录音上传失败"));
+        if (!isAbortError(error)) {
+          markSpeechTurnRetryable(speechTurnId, true);
+          setRoomActionNotice(errorMessage(error, "发言录音上传失败"));
+        }
       } finally {
-        void refreshSpeechTurns();
+        speechUploadsInFlightRef.current.delete(speechTurnId);
+        if (speechUploadControllersRef.current.get(speechTurnId) === controller) {
+          speechUploadControllersRef.current.delete(speechTurnId);
+        }
+        if (!controller.signal.aborted && activeRoomIdRef.current === roomId) {
+          void refreshSpeechTurns();
+        }
       }
     },
-    [refreshSpeechTurns, roomId],
+    [markSpeechTurnRetryable, refreshSpeechTurns, roomId],
+  );
+
+  const finishSpeechRecording = useCallback(
+    async (speechTurnId: string) => {
+      const recording = await stopSpeechRecording(speechTurnId);
+      if (recording) await uploadPendingSpeechRecording(speechTurnId, recording);
+      else if (activeRoomIdRef.current === roomId) void refreshSpeechTurns();
+    },
+    [refreshSpeechTurns, roomId, stopSpeechRecording, uploadPendingSpeechRecording],
   );
 
   const realtime = useRoomRealtime({
@@ -424,7 +529,17 @@ export function RoomPage() {
         void refreshSpeechTurns();
       }
     },
-    onTranscriptUpdated: () => {
+    onTranscriptUpdated: (event) => {
+      if (event.status === "ready") {
+        pendingSpeechRecordingsRef.current.delete(event.speechTurnId);
+        markSpeechTurnRetryable(event.speechTurnId, false);
+      } else if (
+        event.status === "failed" &&
+        pendingSpeechRecordingsRef.current.has(event.speechTurnId)
+      ) {
+        markSpeechTurnRetryable(event.speechTurnId, true);
+        setRoomActionNotice("本次发言转写失败，可在辩论日志中重新转写");
+      }
       void refreshSpeechTurns();
     },
     onSummaryUpdated: () => {
@@ -439,6 +554,7 @@ export function RoomPage() {
     onAccountUpdated: (event) => updateAccount(event.data),
     onRoomClosed: handleRoomClosed,
   });
+  realtimeStatusRef.current = realtime.status;
 
   const currentSeat = snapshot?.seats.find((seat) => seat.occupant?.userId === currentUserId);
   const currentUserQueueEntry = snapshot?.queue.find((entry) => entry.userId === currentUserId);
@@ -451,6 +567,29 @@ export function RoomPage() {
     isSpeaker: currentUserIsSpeaker,
   });
   const trackedExpiry = `${snapshot?.speakerLock?.expiresAt ?? ""}|${currentCooldown?.expiresAt ?? ""}`;
+
+  useEffect(() => {
+    if (realtime.status === "connected") {
+      for (const [speechTurnId, recording] of pendingSpeechRecordingsRef.current) {
+        void uploadPendingSpeechRecording(speechTurnId, recording);
+      }
+      return;
+    }
+
+    const speechTurnId = recordingSpeechTurnIdRef.current;
+    if (speechTurnId) {
+      void stopSpeechRecording(speechTurnId).then((recording) => {
+        if (recording && realtimeStatusRef.current === "connected") {
+          void uploadPendingSpeechRecording(speechTurnId, recording);
+        }
+      });
+    }
+  }, [realtime.status, stopSpeechRecording, uploadPendingSpeechRecording]);
+
+  useEffect(() => {
+    const speechTurnId = recordingSpeechTurnIdRef.current;
+    if (speechTurnId && !currentUserIsSpeaker) void finishSpeechRecording(speechTurnId);
+  }, [currentUserIsSpeaker, finishSpeechRecording]);
 
   useEffect(() => {
     setClockTick(Date.now());
@@ -493,9 +632,19 @@ export function RoomPage() {
 
   async function leaveSeat() {
     setRoomActionNotice(null);
+    const speechTurnId = recordingSpeechTurnIdRef.current;
+    const recordingPromise = speechTurnId
+      ? stopSpeechRecording(speechTurnId)
+      : Promise.resolve(null);
     await roomAudio.stopPublishing();
     const ack = await realtime.leaveSeat();
-    if (ack?.ok) setRoomActionNotice("已下麦");
+    if (ack?.ok) {
+      setRoomActionNotice("已下麦");
+      if (speechTurnId) {
+        const recording = await recordingPromise;
+        if (recording) void uploadPendingSpeechRecording(speechTurnId, recording);
+      }
+    }
   }
 
   async function acquireSpeaker() {
@@ -510,8 +659,15 @@ export function RoomPage() {
 
     const published = await roomAudio.startPublishing();
     if (published.ok) {
-      void startSpeechRecording(ack.data.speechTurnId);
-      setRoomActionNotice("已获得发言权，麦克风已开启");
+      const recordingStarted = startSpeechRecording(
+        ack.data.speechTurnId,
+        published.recordingStream,
+      );
+      setRoomActionNotice(
+        recordingStarted
+          ? "已获得发言权，麦克风与发言录音已开启"
+          : "已获得发言权，麦克风已开启，但本次发言无法自动转写",
+      );
       return;
     }
 
@@ -523,9 +679,14 @@ export function RoomPage() {
     const speechTurnId = snapshot?.speakerLock?.speechTurnId;
     if (!speechTurnId) return;
     setRoomActionNotice(null);
+    const recordingPromise = stopSpeechRecording(speechTurnId);
     await roomAudio.stopPublishing();
     const ack = await realtime.releaseSpeaker(speechTurnId);
-    if (ack?.ok) setRoomActionNotice("本轮发言已结束，已进入冷却");
+    if (ack?.ok) {
+      setRoomActionNotice("本轮发言已结束，已进入冷却");
+      const recording = await recordingPromise;
+      if (recording) void uploadPendingSpeechRecording(speechTurnId, recording);
+    }
   }
 
   async function reloadMaterials() {
@@ -571,9 +732,7 @@ export function RoomPage() {
 
   const danmakuMessages = useMemo(
     () =>
-      messages
-        .filter((message) => message.type === "text")
-        .slice(-maximumVisibleDanmakuMessages),
+      messages.filter((message) => message.type === "text").slice(-maximumVisibleDanmakuMessages),
     [messages],
   );
 
@@ -820,8 +979,8 @@ export function RoomPage() {
             {currentSeat ? (
               <p className="relative z-20 mt-6 rounded-2xl bg-slate-50 px-4 py-3 text-center text-xs leading-5 text-slate-500">
                 {roomAudio.isPublishing
-                  ? "麦克风已开启，结束发言或下麦会立即停止音频传输。"
-                  : "点击“开始发言”后浏览器会请求麦克风权限；只有获得发言权时才会传输音频。"}
+                  ? "麦克风已开启；本轮语音会同步用于实时传输、发言转写和 AI 总结。"
+                  : "点击“开始发言”后浏览器会请求麦克风权限；仅获得发言权时录制本轮语音，用于转写和 AI 总结。"}
               </p>
             ) : null}
             {currentUserQueueEntry ? (
@@ -1026,10 +1185,14 @@ export function RoomPage() {
       {logOpen ? (
         <DebateLogDrawer
           onClose={() => setLogOpen(false)}
+          onRetryTranscript={(speechTurnId) => {
+            void uploadPendingSpeechRecording(speechTurnId);
+          }}
           onRetrySummary={() => {
             summaryRequestVersion.current = speechTurnsPage?.transcriptVersion ?? null;
             void refreshSummary();
           }}
+          retryableSpeechTurnIds={retryableSpeechTurnIds}
           speechTurns={speechTurnsPage?.items ?? []}
           speechTurnsError={speechTurnsError}
           speechTurnsLoading={speechTurnsStatus === "loading"}

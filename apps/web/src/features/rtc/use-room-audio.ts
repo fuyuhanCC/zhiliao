@@ -15,6 +15,7 @@ interface UseRoomAudioOptions {
 interface AudioActionResult {
   ok: boolean;
   message?: string;
+  recordingStream?: MediaStream;
 }
 
 interface UseRoomAudioResult {
@@ -49,6 +50,14 @@ export async function startLocalAudioWhileRequested(
   if (isRequested()) return true;
   await stopLocalAudio();
   return false;
+}
+
+export function createSpeechRecordingStream(
+  localAudioTrack: MediaStreamTrack | null,
+  createStream: (track: MediaStreamTrack) => MediaStream = (track) => new MediaStream([track]),
+): MediaStream | undefined {
+  if (!localAudioTrack) return undefined;
+  return createStream(localAudioTrack.clone());
 }
 
 export function useRoomAudio({
@@ -129,8 +138,9 @@ export function useRoomAudio({
         setIsPublishing(false);
         return { ok: false, message: "发言权已失效，麦克风已关闭" };
       }
+      const recordingStream = createSpeechRecordingStream(trtc.getAudioTrack());
       setIsPublishing(true);
-      return { ok: true };
+      return { ok: true, ...(recordingStream ? { recordingStream } : {}) };
     } catch (publishError) {
       const message = audioErrorMessage(publishError, "麦克风启动失败");
       publishingRequestedRef.current = false;

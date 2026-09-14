@@ -6,7 +6,9 @@ interface DebateLogDrawerProps {
   speechTurnsError: string | null;
   summary: SummaryResource | null;
   summaryError: string | null;
+  retryableSpeechTurnIds: ReadonlySet<string>;
   onClose: () => void;
+  onRetryTranscript: (speechTurnId: string) => void;
   onRetrySummary: () => void;
 }
 
@@ -123,7 +125,9 @@ export function DebateLogDrawer({
   speechTurnsError,
   summary,
   summaryError,
+  retryableSpeechTurnIds,
   onClose,
+  onRetryTranscript,
   onRetrySummary,
 }: DebateLogDrawerProps) {
   return (
@@ -174,6 +178,15 @@ export function DebateLogDrawer({
             <p className="mt-2 rounded-2xl bg-slate-50 p-4 text-sm leading-7 text-slate-600">
               {transcriptText(turn)}
             </p>
+            {retryableSpeechTurnIds.has(turn.speechTurnId) ? (
+              <button
+                className="mt-2 text-xs font-semibold text-blue-600 hover:underline"
+                onClick={() => onRetryTranscript(turn.speechTurnId)}
+                type="button"
+              >
+                {turn.transcript?.status === "failed" ? "重新转写本次发言" : "重新上传本次录音"}
+              </button>
+            ) : null}
           </article>
         ))}
 

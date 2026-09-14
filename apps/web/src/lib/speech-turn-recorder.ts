@@ -4,17 +4,17 @@ export interface RecordedSpeechTurn {
   fileName: string;
 }
 
-const supportedRecordingTypes = [
+export const supportedSpeechRecordingTypes = [
   { mimeType: "audio/mp4;codecs=mp4a.40.2", extension: "m4a" },
   { mimeType: "audio/mp4", extension: "m4a" },
   { mimeType: "audio/ogg;codecs=opus", extension: "ogg" },
   { mimeType: "audio/ogg", extension: "ogg" },
 ] as const;
 
-function selectRecordingType(): (typeof supportedRecordingTypes)[number] {
-  const selected = supportedRecordingTypes.find(({ mimeType }) =>
-    MediaRecorder.isTypeSupported(mimeType),
-  );
+export function selectSpeechRecordingType(
+  isTypeSupported: (mimeType: string) => boolean,
+): (typeof supportedSpeechRecordingTypes)[number] {
+  const selected = supportedSpeechRecordingTypes.find(({ mimeType }) => isTypeSupported(mimeType));
   if (!selected) {
     throw new Error("当前浏览器无法录制服务端 ASR 支持的 m4a 或 ogg-opus 音频");
   }
@@ -31,7 +31,12 @@ export class SpeechTurnRecorder {
     if (this.recorder) {
       throw new Error("已有发言录音正在进行");
     }
-    const recordingType = selectRecordingType();
+    if (typeof MediaRecorder === "undefined") {
+      throw new Error("当前浏览器不支持发言录音");
+    }
+    const recordingType = selectSpeechRecordingType((mimeType) =>
+      MediaRecorder.isTypeSupported(mimeType),
+    );
     const recorder = new MediaRecorder(stream, { mimeType: recordingType.mimeType });
     this.recorder = recorder;
     this.chunks = [];
@@ -61,6 +66,10 @@ export class SpeechTurnRecorder {
     recorder.stop();
     await stopped;
     const blob = new Blob(this.chunks, { type: recorder.mimeType });
+    if (blob.size === 0) {
+      this.reset();
+      throw new Error("本次发言没有录制到有效音频");
+    }
     const fileName = `${speechTurnId}.${this.extension}`;
     this.reset();
     return { blob, durationMs, fileName };
