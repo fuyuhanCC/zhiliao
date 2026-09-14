@@ -44,7 +44,80 @@ describe("HttpZhihuOAuthClient", () => {
       accessToken: "oauth-access-token",
       tokenType: "Bearer",
       expiresInSeconds: 3600,
+      profile: null,
     });
+  });
+
+  it("extracts a profile when the token response includes user fields", async () => {
+    const client = new HttpZhihuOAuthClient({
+      appId: "app-id",
+      appKey: "app-key",
+      redirectUri: "https://demo.example.com/callback",
+      fetchImpl: async () =>
+        Response.json({
+          access_token: "oauth-access-token",
+          token_type: "Bearer",
+          expires_in: 3600,
+          user: {
+            id: "zhihu-user-id",
+            name: "真实知乎昵称",
+            avatar_url: "https://picx.zhimg.com/avatar.jpg",
+          },
+        }),
+    });
+
+    await expect(client.exchangeAuthorizationCode("authorization-code")).resolves.toMatchObject({
+      profile: {
+        userId: "zhihu-user-id",
+        displayName: "真实知乎昵称",
+        avatarUrl: "https://picx.zhimg.com/avatar.jpg",
+      },
+    });
+  });
+
+  it("fetches the configured profile endpoint with the OAuth access token", async () => {
+    const requestedUrls: string[] = [];
+    const requestedInits: RequestInit[] = [];
+    const fetchImpl: typeof fetch = async (input, init) => {
+      requestedUrls.push(input.toString());
+      requestedInits.push(init ?? {});
+      if (requestedUrls.length === 1) {
+        return Response.json({
+          access_token: "oauth-access-token",
+          token_type: "Bearer",
+          expires_in: 3600,
+        });
+      }
+      return Response.json({
+        data: {
+          uid: "zhihu-user-id",
+          nickname: "资料接口昵称",
+          avatarUrl: "https://picx.zhimg.com/profile.jpg",
+        },
+      });
+    };
+    const client = new HttpZhihuOAuthClient({
+      appId: "app-id",
+      appKey: "app-key",
+      redirectUri: "https://demo.example.com/callback",
+      profileUrl: "https://openapi.zhihu.com/userinfo",
+      fetchImpl,
+    });
+
+    await expect(client.exchangeAuthorizationCode("authorization-code")).resolves.toMatchObject({
+      profile: {
+        userId: "zhihu-user-id",
+        displayName: "资料接口昵称",
+        avatarUrl: "https://picx.zhimg.com/profile.jpg",
+      },
+    });
+    expect(requestedUrls).toEqual([
+      "https://openapi.zhihu.com/access_token",
+      "https://openapi.zhihu.com/userinfo",
+    ]);
+    expect(new Headers(requestedInits[1]?.headers).get("Authorization")).toBe(
+      "Bearer oauth-access-token",
+    );
   });
 
   it("rejects unsuccessful and malformed upstream responses", async () => {

@@ -25,6 +25,7 @@ function createSuccessfulClient(): ZhihuOAuthClient {
       accessToken: "oauth-access-token",
       tokenType: "Bearer",
       expiresInSeconds: 3600,
+      profile: null,
     })),
   };
 }
@@ -130,6 +131,36 @@ describe("Zhihu OAuth routes", () => {
       canCreateRoom: true,
       canRequestSeat: true,
       canSpeak: true,
+    });
+  });
+
+  it("uses the authorized Zhihu profile when the OAuth client returns it", async () => {
+    const client: ZhihuOAuthClient = {
+      exchangeAuthorizationCode: vi.fn(async () => ({
+        accessToken: "oauth-access-token",
+        tokenType: "Bearer",
+        expiresInSeconds: 3600,
+        profile: {
+          userId: "real-zhihu-user",
+          displayName: "真实知乎昵称",
+          avatarUrl: "https://picx.zhimg.com/avatar.jpg",
+        },
+      })),
+    };
+    const { app } = createTestContext(client);
+    const agent = request.agent(app);
+    const { state } = await beginAuthorization(agent);
+
+    await agent
+      .get("/api/v1/auth/zhihu/callback")
+      .query({ authorization_code: "authorization-code", state })
+      .expect(302);
+
+    const upgradedSession = await agent.get("/api/v1/auth/session").expect(200);
+    expect(upgradedSession.body.user).toMatchObject({
+      identityType: "zhihu",
+      displayName: "真实知乎昵称",
+      avatarUrl: "https://picx.zhimg.com/avatar.jpg",
     });
   });
 

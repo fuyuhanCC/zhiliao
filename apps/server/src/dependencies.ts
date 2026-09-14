@@ -104,6 +104,7 @@ export function createAppDependencies(): AppDependencies {
             appId: env.zhihuOAuth.appId,
             appKey: env.zhihuOAuth.appKey,
             redirectUri: env.zhihuOAuth.redirectUri,
+            ...(env.zhihuOAuth.profileUrl ? { profileUrl: env.zhihuOAuth.profileUrl } : {}),
             requestTimeoutMilliseconds: env.zhihuOAuth.requestTimeoutMilliseconds,
           }),
         })

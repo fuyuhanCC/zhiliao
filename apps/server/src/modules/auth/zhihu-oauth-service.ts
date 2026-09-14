@@ -4,7 +4,7 @@ import { withAccountProgression } from "../../domain/account/user-account.js";
 import type { AccountStore } from "../../stores/account-store.js";
 import type { OAuthAttempt, OAuthAttemptStore } from "../../stores/oauth-attempt-store.js";
 import type { SessionStore, UserSession } from "../../stores/session-store.js";
-import type { ZhihuOAuthClient } from "./zhihu-oauth-client.js";
+import type { ZhihuOAuthClient, ZhihuUserProfile } from "./zhihu-oauth-client.js";
 
 export interface ZhihuOAuthServiceOptions {
   appId: string;
@@ -53,12 +53,13 @@ function statesMatch(expected: string, actual: string): boolean {
   );
 }
 
-function createZhihuUserId(session: UserSession): string {
+function createZhihuUserId(session: UserSession, profile: ZhihuUserProfile | null): string {
   if (session.user.identityType === "zhihu") {
     return session.user.userId;
   }
 
-  const digest = createHash("sha256").update(session.sessionId).digest("base64url").slice(0, 24);
+  const identitySource = profile?.userId ?? session.sessionId;
+  const digest = createHash("sha256").update(identitySource).digest("base64url").slice(0, 24);
   return `zhihu_${digest}`;
 }
 
@@ -134,9 +135,8 @@ export class ZhihuOAuthService {
 
     const token = await this.options.client.exchangeAuthorizationCode(input.authorizationCode);
     const now = this.now();
-    // The current Zhihu OAuth document does not publish a user-profile endpoint or profile schema.
-    // Keep the existing nickname and use a session-scoped ID until that contract is available.
-    const zhihuUserId = createZhihuUserId(input.session);
+    const profile = token.profile;
+    const zhihuUserId = createZhihuUserId(input.session, profile);
     const account = this.options.accountStore.migrate(input.session.user.userId, zhihuUserId);
     const upgradedSession: UserSession = {
       ...input.session,
@@ -145,6 +145,8 @@ export class ZhihuOAuthService {
           ...input.session.user,
           userId: zhihuUserId,
           identityType: "zhihu",
+          displayName: profile?.displayName ?? input.session.user.displayName,
+          avatarUrl: profile?.avatarUrl ?? input.session.user.avatarUrl,
         },
         account,
       ),

@@ -29,6 +29,7 @@ const envSchema = z
     ROOM_EMPTY_RECLAIM_MS: z.coerce.number().int().min(1000).max(3600000).default(60000),
     ZHIHU_OAUTH_APP_ID: optionalNonEmptyString,
     ZHIHU_OAUTH_APP_KEY: optionalNonEmptyString,
+    ZHIHU_OAUTH_PROFILE_URL: optionalUrl,
     ZHIHU_REDIRECT_URI: optionalUrl,
     ZHIHU_OAUTH_STATE_TTL_SECONDS: z.coerce.number().int().min(60).max(1800).default(600),
     ZHIHU_OAUTH_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(1000).max(30000).default(10000),
@@ -138,6 +139,7 @@ export const env = {
       ? {
           appId: parsedEnv.ZHIHU_OAUTH_APP_ID,
           appKey: parsedEnv.ZHIHU_OAUTH_APP_KEY,
+          profileUrl: parsedEnv.ZHIHU_OAUTH_PROFILE_URL,
           redirectUri: parsedEnv.ZHIHU_REDIRECT_URI,
           stateTtlSeconds: parsedEnv.ZHIHU_OAUTH_STATE_TTL_SECONDS,
           requestTimeoutMilliseconds: parsedEnv.ZHIHU_OAUTH_REQUEST_TIMEOUT_MS,
