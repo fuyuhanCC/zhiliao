@@ -36,6 +36,42 @@ a {
   -webkit-tap-highlight-color: transparent;
 }
 
+/* Older Android WebViews cannot resolve Tailwind's OKLCH palette. */
+@supports not (color: oklch(0.5 0.1 180)) {
+  :root {
+    --color-slate-50: #f8fafc;
+    --color-slate-100: #f1f5f9;
+    --color-slate-200: #e2e8f0;
+    --color-slate-300: #cbd5e1;
+    --color-slate-400: #94a3b8;
+    --color-slate-500: #64748b;
+    --color-slate-600: #475569;
+    --color-slate-700: #334155;
+    --color-slate-800: #1e293b;
+    --color-slate-900: #0f172a;
+    --color-slate-950: #020617;
+    --color-blue-50: #eff6ff;
+    --color-blue-100: #dbeafe;
+    --color-blue-200: #bfdbfe;
+    --color-blue-300: #93c5fd;
+    --color-blue-400: #60a5fa;
+    --color-blue-500: #3b82f6;
+    --color-blue-600: #2563eb;
+    --color-blue-700: #1d4ed8;
+    --color-indigo-700: #4338ca;
+    --color-orange-50: #fff7ed;
+    --color-orange-400: #fb923c;
+    --color-orange-500: #f97316;
+    --color-orange-600: #ea580c;
+  }
+}
+
+/* Keep featured text readable without modern gradient interpolation support. */
+.lobby-featured {
+  background-color: #2563eb;
+  background-image: linear-gradient(135deg, #3b82f6, #2563eb, #4338ca);
+}
+
 .danmaku-item {
   animation-name: danmaku-fly;
   animation-timing-function: linear;

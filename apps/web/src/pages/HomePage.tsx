@@ -274,7 +274,7 @@ export function HomePage() {
           </p>
         ) : null}
         {activeTab === "official" ? (
-          <section className="overflow-hidden rounded-[2rem] bg-gradient-to-br from-blue-500 via-blue-600 to-indigo-700 p-7 text-white shadow-xl shadow-blue-200/60 lg:p-10">
+          <section className="lobby-featured overflow-hidden rounded-[2rem] bg-gradient-to-br from-blue-500 via-blue-600 to-indigo-700 p-7 text-white shadow-xl shadow-blue-200/60 lg:p-10">
             <div className="max-w-2xl">
               <p className="text-sm font-medium text-blue-100">
                 {featuredRoom?.topic.hotRank
