@@ -1,4 +1,4 @@
-import "dotenv/config";
+import "./config/load-root-env.js";
 
 import { createServer } from "node:http";
 

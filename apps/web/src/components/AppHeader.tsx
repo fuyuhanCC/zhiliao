@@ -1,5 +1,7 @@
 import { Link } from "react-router-dom";
 
+import { useSessionStore } from "../stores/session-store";
+
 export type LobbyTab = "official" | "private";
 
 interface AppHeaderProps {
@@ -9,6 +11,10 @@ interface AppHeaderProps {
 }
 
 export function AppHeader({ activeTab, onTabChange, onAccountClick }: AppHeaderProps) {
+  const session = useSessionStore((state) => state.session);
+  const displayName = session?.user.displayName ?? "访客";
+  const initial = displayName.trim().charAt(0) || "知";
+
   return (
     <header className="border-b border-slate-200/80 bg-white/90 backdrop-blur">
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-5 lg:px-8">
@@ -49,11 +55,15 @@ export function AppHeader({ activeTab, onTabChange, onAccountClick }: AppHeaderP
           type="button"
         >
           <span className="hidden sm:block">
-            <span className="block text-xs text-slate-500">100 知豆</span>
-            <span className="block text-xs font-medium text-blue-600">Lv.3 蜕壳</span>
+            <span className="block text-xs text-slate-500">
+              {session ? `${session.account.coinBalance} 知豆` : "正在连接…"}
+            </span>
+            <span className="block text-xs font-medium text-blue-600">
+              {session ? `Lv.${session.account.level} ${session.account.levelTitle}` : "读取账户"}
+            </span>
           </span>
           <span className="grid size-9 place-items-center rounded-full bg-gradient-to-br from-orange-400 to-orange-600 font-semibold text-white">
-            余
+            {initial}
           </span>
         </button>
       </div>
