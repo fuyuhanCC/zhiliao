@@ -186,6 +186,7 @@ export function RoomPage() {
   const [danmakuEnabled, setDanmakuEnabled] = useState(true);
   const [accountOpen, setAccountOpen] = useState(false);
   const [roomActionNotice, setRoomActionNotice] = useState<string | null>(null);
+  const [speakerAudioStartingTurnId, setSpeakerAudioStartingTurnId] = useState<string | null>(null);
   const [retryableSpeechTurnIds, setRetryableSpeechTurnIds] = useState<Set<string>>(
     () => new Set(),
   );
@@ -205,6 +206,7 @@ export function RoomPage() {
   activeRoomIdRef.current = roomId;
 
   useEffect(() => {
+    setSpeakerAudioStartingTurnId(null);
     setRetryableSpeechTurnIds(new Set());
     return () => {
       speechRecorderRef.current?.cancel();
@@ -523,6 +525,7 @@ export function RoomPage() {
     onSnapshot: setSnapshot,
     onChatCreated: handleChatCreated,
     onSpeechClosed: (event) => {
+      setSpeakerAudioStartingTurnId((current) => (current === event.speechTurnId ? null : current));
       if (event.speakerUserId === currentUserId) {
         void finishSpeechRecording(event.speechTurnId);
       } else {
@@ -657,12 +660,17 @@ export function RoomPage() {
     const ack = await realtime.acquireSpeaker();
     if (!ack?.ok) return;
 
+    const speechTurnId = ack.data.speechTurnId;
+    setSpeakerAudioStartingTurnId(speechTurnId);
+    setRoomActionNotice("正在开启麦克风，请在浏览器权限提示中选择允许");
     const published = await roomAudio.startPublishing();
+    setSpeakerAudioStartingTurnId((current) => (current === speechTurnId ? null : current));
+    if (activeRoomIdRef.current !== roomId) {
+      stopMediaStream(published.recordingStream ?? null);
+      return;
+    }
     if (published.ok) {
-      const recordingStarted = startSpeechRecording(
-        ack.data.speechTurnId,
-        published.recordingStream,
-      );
+      const recordingStarted = startSpeechRecording(speechTurnId, published.recordingStream);
       setRoomActionNotice(
         recordingStarted
           ? "已获得发言权，麦克风与发言录音已开启"
@@ -671,7 +679,7 @@ export function RoomPage() {
       return;
     }
 
-    await realtime.releaseSpeaker(ack.data.speechTurnId);
+    await realtime.releaseSpeaker(speechTurnId);
     setRoomActionNotice(published.message ?? "麦克风启动失败，已释放发言权");
   }
 
@@ -793,6 +801,8 @@ export function RoomPage() {
   const actionPending = realtime.pendingAction !== null;
   const roomActionDisabled = realtime.status !== "connected" || actionPending;
   const currentSpeechTurnId = speakerLock?.speechTurnId ?? null;
+  const speakerAudioStarting =
+    currentUserIsSpeaker && speakerAudioStartingTurnId === currentSpeechTurnId;
   const speakerActionDisabled = roomActionDisabled || !currentSpeechTurnId || !speaker;
 
   return (
@@ -978,9 +988,11 @@ export function RoomPage() {
             </div>
             {currentSeat ? (
               <p className="relative z-20 mt-6 rounded-2xl bg-slate-50 px-4 py-3 text-center text-xs leading-5 text-slate-500">
-                {roomAudio.isPublishing
-                  ? "麦克风已开启；本轮语音会同步用于实时传输、发言转写和 AI 总结。"
-                  : "点击“开始发言”后浏览器会请求麦克风权限；仅获得发言权时录制本轮语音，用于转写和 AI 总结。"}
+                {speakerAudioStarting
+                  ? "正在等待浏览器麦克风授权；授权成功后才会开始实时传输和本轮录音。"
+                  : roomAudio.isPublishing
+                    ? "麦克风已开启；本轮语音会同步用于实时传输、发言转写和 AI 总结。"
+                    : "点击“开始发言”后浏览器会请求麦克风权限；仅获得发言权时录制本轮语音，用于转写和 AI 总结。"}
               </p>
             ) : null}
             {currentUserQueueEntry ? (
@@ -1118,7 +1130,7 @@ export function RoomPage() {
               <>
                 <button
                   className="rounded-xl border border-slate-200 px-4 py-3 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-                  disabled={roomActionDisabled}
+                  disabled={roomActionDisabled || speakerAudioStarting}
                   onClick={() => void leaveSeat()}
                   type="button"
                 >
@@ -1132,6 +1144,7 @@ export function RoomPage() {
                   }`}
                   disabled={
                     roomActionDisabled ||
+                    speakerAudioStarting ||
                     (!currentUserIsSpeaker && Boolean(speakerLock)) ||
                     (!currentUserIsSpeaker && cooldownRemainingSeconds > 0) ||
                     (!currentUserIsSpeaker && roomAudio.status !== "connected")
@@ -1139,21 +1152,23 @@ export function RoomPage() {
                   onClick={() => void (currentUserIsSpeaker ? releaseSpeaker() : acquireSpeaker())}
                   type="button"
                 >
-                  {realtime.pendingAction === "acquire-speaker"
-                    ? "申请中…"
-                    : realtime.pendingAction === "release-speaker"
-                      ? "结束中…"
-                      : currentUserIsSpeaker
-                        ? `结束发言 ${countdownLabel(speakerRemainingSeconds)}`
-                        : speaker
-                          ? `等待 ${speaker.displayName}`
-                          : cooldownRemainingSeconds > 0
-                            ? `冷却 ${cooldownRemainingSeconds}s`
-                            : roomAudio.status === "connecting"
-                              ? "语音连接中…"
-                              : roomAudio.status !== "connected"
-                                ? "语音不可用"
-                                : "开始发言"}
+                  {speakerAudioStarting
+                    ? "等待麦克风授权…"
+                    : realtime.pendingAction === "acquire-speaker"
+                      ? "申请中…"
+                      : realtime.pendingAction === "release-speaker"
+                        ? "结束中…"
+                        : currentUserIsSpeaker
+                          ? `结束发言 ${countdownLabel(speakerRemainingSeconds)}`
+                          : speaker
+                            ? `等待 ${speaker.displayName}`
+                            : cooldownRemainingSeconds > 0
+                              ? `冷却 ${cooldownRemainingSeconds}s`
+                              : roomAudio.status === "connecting"
+                                ? "语音连接中…"
+                                : roomAudio.status !== "connected"
+                                  ? "语音不可用"
+                                  : "开始发言"}
                 </button>
               </>
             ) : (
