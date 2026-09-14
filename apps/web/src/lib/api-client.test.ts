@@ -1,6 +1,16 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { createRoom, ensureSession, listRooms } from "./api-client";
+import {
+  createRoom,
+  ensureSession,
+  generateRoomSummary,
+  getRoom,
+  getRoomSummary,
+  listRoomMaterials,
+  listRoomMessages,
+  listRooms,
+  listSpeechTurns,
+} from "./api-client";
 
 const sessionResponse = {
   user: {
@@ -112,5 +122,29 @@ describe("api client", () => {
     expect(requestInit?.body).toBe(
       JSON.stringify({ topic: { source: "manual", title: "一个测试话题" } }),
     );
+  });
+
+  it("builds the room resource URLs from the room id", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async () => jsonResponse({}));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await getRoom("room 1");
+    await listRoomMaterials("room 1");
+    await listRoomMessages("room 1");
+    await listSpeechTurns("room 1");
+    await getRoomSummary("room 1");
+    await generateRoomSummary("room 1");
+
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      "/api/v1/rooms/room%201",
+      "/api/v1/rooms/room%201/materials?limit=5",
+      "/api/v1/rooms/room%201/messages?limit=30",
+      "/api/v1/rooms/room%201/speech-turns?limit=50",
+      "/api/v1/rooms/room%201/summary",
+      "/api/v1/rooms/room%201/summary/generate",
+    ]);
+    const summaryRequest = fetchMock.mock.calls[5]?.[1];
+    expect(summaryRequest?.method).toBe("POST");
+    expect(new Headers(summaryRequest?.headers).get("Idempotency-Key")).toBeTruthy();
   });
 });

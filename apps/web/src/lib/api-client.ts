@@ -7,6 +7,14 @@ export type SessionResponse = components["schemas"]["SessionResponse"];
 export type Room = components["schemas"]["Room"];
 export type RoomPage = components["schemas"]["RoomPage"];
 export type RoomType = components["schemas"]["RoomType"];
+export type RoomSnapshot = components["schemas"]["RoomSnapshot"];
+export type RoomMaterial = components["schemas"]["RoomMaterial"];
+export type RoomMaterialPage = components["schemas"]["RoomMaterialPage"];
+export type ChatMessage = components["schemas"]["ChatMessage"];
+export type ChatMessagePage = components["schemas"]["ChatMessagePage"];
+export type SpeechTurn = components["schemas"]["SpeechTurn"];
+export type SpeechTurnPage = components["schemas"]["SpeechTurnPage"];
+export type SummaryResource = components["schemas"]["SummaryResource"];
 export type CreateRoomResponse = components["schemas"]["CreateRoomResponse"];
 
 interface ApiErrorPayload {
@@ -123,6 +131,50 @@ export function createRoom(title: string): Promise<CreateRoomResponse> {
         title,
       },
     }),
+  });
+}
+
+function roomResourcePath(roomId: string, resource = ""): string {
+  const encodedRoomId = encodeURIComponent(roomId);
+  return `/rooms/${encodedRoomId}${resource}`;
+}
+
+export function getRoom(roomId: string, signal?: AbortSignal): Promise<RoomSnapshot> {
+  return request<RoomSnapshot>(roomResourcePath(roomId), signal ? { signal } : {});
+}
+
+export function listRoomMaterials(roomId: string, signal?: AbortSignal): Promise<RoomMaterialPage> {
+  return request<RoomMaterialPage>(
+    `${roomResourcePath(roomId, "/materials")}?limit=5`,
+    signal ? { signal } : {},
+  );
+}
+
+export function listRoomMessages(roomId: string, signal?: AbortSignal): Promise<ChatMessagePage> {
+  return request<ChatMessagePage>(
+    `${roomResourcePath(roomId, "/messages")}?limit=30`,
+    signal ? { signal } : {},
+  );
+}
+
+export function listSpeechTurns(roomId: string, signal?: AbortSignal): Promise<SpeechTurnPage> {
+  return request<SpeechTurnPage>(
+    `${roomResourcePath(roomId, "/speech-turns")}?limit=50`,
+    signal ? { signal } : {},
+  );
+}
+
+export function getRoomSummary(roomId: string, signal?: AbortSignal): Promise<SummaryResource> {
+  return request<SummaryResource>(roomResourcePath(roomId, "/summary"), signal ? { signal } : {});
+}
+
+export function generateRoomSummary(roomId: string): Promise<SummaryResource> {
+  return request<SummaryResource>(roomResourcePath(roomId, "/summary/generate"), {
+    method: "POST",
+    headers: {
+      "Idempotency-Key": crypto.randomUUID(),
+    },
+    body: JSON.stringify({}),
   });
 }
 
