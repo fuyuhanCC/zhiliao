@@ -22,6 +22,7 @@ export function AccountDialog({ open, onClose }: AccountDialogProps) {
   const session = useSessionStore((state) => state.session);
   const status = useSessionStore((state) => state.status);
   const error = useSessionStore((state) => state.error);
+  const logout = useSessionStore((state) => state.logout);
 
   if (!open) {
     return null;
@@ -65,7 +66,9 @@ export function AccountDialog({ open, onClose }: AccountDialogProps) {
                   {displayName}
                 </h2>
                 <p className="mt-1 text-sm text-blue-100">
-                  {session ? `知豆余额 · ${session.account.coinBalance}` : "正在读取账户…"}
+                  {session
+                    ? `${session.user.identityType === "zhihu" ? "已登录知乎" : "游客模式"} · 知豆余额 ${session.account.coinBalance}`
+                    : "正在读取账户…"}
                 </p>
               </div>
             </div>
@@ -124,6 +127,20 @@ export function AccountDialog({ open, onClose }: AccountDialogProps) {
               type="button"
             >
               登录知乎以创建房间和上麦
+            </button>
+          ) : null}
+          {session?.user.identityType === "zhihu" ? (
+            <button
+              className="mb-4 w-full rounded-xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-600 transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600 disabled:cursor-wait disabled:opacity-60"
+              disabled={status === "loading"}
+              onClick={() => {
+                void logout()
+                  .then(onClose)
+                  .catch(() => undefined);
+              }}
+              type="button"
+            >
+              {status === "loading" ? "正在退出…" : "退出登录"}
             </button>
           ) : null}
           <p className="mb-3 text-sm font-medium text-slate-700">成长路线 · 六大等级</p>

@@ -62,7 +62,7 @@ flowchart LR
 
 | 模块               | 职责                                                                     |
 | ------------------ | ------------------------------------------------------------------------ |
-| `auth`             | 游客会话、知乎 OAuth、加密 Cookie、权限判断                              |
+| `auth`             | 游客会话、知乎 OAuth、签名 Cookie、权限判断                              |
 | `zhihu-gateway`    | 热榜、问题、回答和直答接口适配、限流、缓存与官方房同步                   |
 | `room-domain`      | 房间生命周期、成员与房间快照                                             |
 | `seat-domain`      | 6 席位、等待队列、上下麦规则                                             |
@@ -126,6 +126,7 @@ MVP 的房间、公屏、账户、打赏、转写和总结存放在 Node 进程�
 - 每房只保留有限数量的公屏和发言记录。
 - 服务重启后临时房间允许丢失。
 - 服务重启后演示账户的知豆和经验也会重置；接入持久化数据库后再承诺跨重启保留。
+- 基础登录身份和 OAuth 临时状态可从签名 Cookie 恢复，避免 AI Works 冷启动中断授权回调；Cookie 不包含知乎用户 Token。
 - 热榜请求使用 TTL 缓存，并提供静态预置话题兜底。
 
 所有状态通过 Store 接口访问。若 AI Works 的多实例或缩容行为影响 Socket.IO，再将 Store 与锁实现替换为 Redis，或将同一服务部署到单台普通服务器。
@@ -133,7 +134,7 @@ MVP 的房间、公屏、账户、打赏、转写和总结存放在 Node 进程�
 ## 9. 安全边界
 
 - 知乎 OAuth Secret、TRTC SecretKey、ASR 密钥只存在于服务端环境变量。
-- OAuth 会话使用 `HttpOnly`、`Secure`、`SameSite=Lax` Cookie。
+- OAuth 会话在线上使用签名的 `HttpOnly`、`Secure`、`SameSite=Lax` Cookie；可恢复内容只包含基础身份，不包含知乎用户 Token。
 - 若知乎 OAuth 支持回传 `state`，必须校验；同时使用签名的一次性 OAuth 尝试 Cookie 绑定发起浏览器，并限制 `returnTo` 只能是站内路径。
 - TRTC UserSig 使用短有效期，客户端不得接触 SecretKey。
 - 首次上麦前提示语音将用于转写和 AI 总结；MVP 不保存原始录音。

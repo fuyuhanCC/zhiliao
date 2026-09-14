@@ -1,19 +1,46 @@
 import type { Request, Response } from "express";
+import { z } from "zod";
+
+import type { OAuthAttempt } from "../../stores/oauth-attempt-store.js";
 
 export const OAUTH_ATTEMPT_COOKIE_NAME = "zhiliao_oauth_attempt";
+const oauthAttemptCookiePrefix = "v1.";
+const oauthAttemptSchema = z
+  .object({
+    attemptId: z.string().min(1).max(200),
+    sessionId: z.string().min(1).max(200),
+    state: z.string().min(1).max(200),
+    returnTo: z.string().min(1).max(500),
+    expiresAt: z.string().min(1),
+  })
+  .strict();
 
-export function readOAuthAttemptCookie(request: Request): string | undefined {
+export function readOAuthAttemptCookie(request: Request): OAuthAttempt | undefined {
   const cookieValue: unknown = request.signedCookies?.[OAUTH_ATTEMPT_COOKIE_NAME];
-  return typeof cookieValue === "string" ? cookieValue : undefined;
+  if (typeof cookieValue !== "string" || !cookieValue.startsWith(oauthAttemptCookiePrefix)) {
+    return undefined;
+  }
+
+  try {
+    const payload = JSON.parse(
+      Buffer.from(cookieValue.slice(oauthAttemptCookiePrefix.length), "base64url").toString("utf8"),
+    );
+    const parsedAttempt = oauthAttemptSchema.safeParse(payload);
+    return parsedAttempt.success ? parsedAttempt.data : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 export function setOAuthAttemptCookie(
   response: Response,
-  attemptId: string,
+  attempt: OAuthAttempt,
   secure: boolean,
   maxAgeMilliseconds: number,
 ): void {
-  response.cookie(OAUTH_ATTEMPT_COOKIE_NAME, attemptId, {
+  const payload = oauthAttemptSchema.parse(attempt);
+  const encodedPayload = `${oauthAttemptCookiePrefix}${Buffer.from(JSON.stringify(payload)).toString("base64url")}`;
+  response.cookie(OAUTH_ATTEMPT_COOKIE_NAME, encodedPayload, {
     httpOnly: true,
     secure,
     sameSite: "lax",

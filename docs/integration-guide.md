@@ -33,8 +33,12 @@ pnpm --filter @zhiliao/shared build
 ```bash
 pnpm install
 cp .env.example .env
+cp .env.development.example .env.development
+cp .env.production.example .env.production
 pnpm dev
 ```
+
+配置分为三层：`.env` 保存两套环境共用的服务端密钥和业务参数；`.env.development` 保存本地端口、Origin、代理和 OAuth 回调；`.env.production` 保存正式域名、正式 OAuth 回调及生产开关。`pnpm dev` 自动使用开发配置，`pnpm start` 自动使用生产配置，操作系统或部署平台显式注入的变量优先级最高。
 
 默认地址：
 
@@ -60,12 +64,17 @@ Browser :5173 ── /api/* ──────> Vite proxy ──> Server :3000
 按照[知乎 OAuth 官方文档](https://developer.zhihu.com/docs?key=zhihu_oauth_integrated)申请 `app_id` 和 `app_key`，并将登记的回调地址与环境变量保持完全一致：
 
 ```dotenv
+# .env（共享密钥）
 ZHIHU_OAUTH_APP_ID=<申请到的 app_id>
 ZHIHU_OAUTH_APP_KEY=<申请到的 app_key>
+
+# .env.development（本地地址）
 ZHIHU_REDIRECT_URI=http://localhost:3000/api/v1/auth/zhihu/callback
 ```
 
-前端从 `GET /api/v1/auth/zhihu/authorize?returnTo=<站内路径>` 开始登录，不应自行拼装知乎授权地址，也不能接触 `app_key` 或用户 Token。当前官方文档尚未公布“获取用户信息”接口的 URL 和响应结构，因此现阶段授权成功后保留用户已有昵称与头像；知乎补充该接口后再在服务端 OAuth 网关中接入真实资料。
+前端从 `GET /api/v1/auth/zhihu/authorize?returnTo=<站内路径>` 开始登录，不应自行拼装知乎授权地址，也不能接触 `app_key` 或用户 Token。知乎后台当前登记哪个回调，就只能完整调试对应环境；若后台登记的是生产回调，本地可以调试登录入口和未登录分支，但授权成功后会回到生产站点。切换环境时必须同时修改知乎后台登记值，且 `localhost` 与 `127.0.0.1` 不可混用。
+
+当前服务端已经完成授权码换 Token，但尚未调用知乎用户信息接口，登录后仍使用会话级临时身份；接入真实昵称、头像和知乎用户 ID 是后续 OAuth 完善项。
 
 ### 3.2 多用户本地调试
 
@@ -119,7 +128,7 @@ pnpm --filter @zhiliao/web dev
 
 ## 5. 连接另一台电脑上的后端
 
-前端仍然通过 Vite 代理访问后端。在前端电脑的 `.env` 中修改：
+前端仍然通过 Vite 代理访问后端。在前端电脑的 `.env.development` 中修改：
 
 ```dotenv
 DEV_PROXY_TARGET=http://192.168.1.20:3000

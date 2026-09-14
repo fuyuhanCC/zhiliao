@@ -1,6 +1,13 @@
 import { create } from "zustand";
 
-import { ensureSession, getHealth, type SessionResponse, type UserAccount } from "../lib/api-client";
+import {
+  createGuestSession,
+  ensureSession,
+  getHealth,
+  logoutSession,
+  type SessionResponse,
+  type UserAccount,
+} from "../lib/api-client";
 
 type SessionStatus = "idle" | "loading" | "ready" | "error";
 
@@ -9,6 +16,7 @@ interface SessionState {
   status: SessionStatus;
   error: string | null;
   bootstrap: () => Promise<void>;
+  logout: () => Promise<void>;
   updateAccount: (account: UserAccount) => void;
 }
 
@@ -40,6 +48,18 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       });
 
     return bootstrapPromise;
+  },
+  logout: async () => {
+    set({ status: "loading", error: null });
+    try {
+      await logoutSession();
+      const session = await createGuestSession();
+      set({ session, status: "ready", error: null });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "退出登录失败";
+      set({ session: null, status: "error", error: message });
+      throw error;
+    }
   },
   updateAccount: (account) => {
     const session = get().session;

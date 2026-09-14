@@ -2,7 +2,7 @@ import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 
 import { withAccountProgression } from "../../domain/account/user-account.js";
 import type { AccountStore } from "../../stores/account-store.js";
-import type { OAuthAttemptStore } from "../../stores/oauth-attempt-store.js";
+import type { OAuthAttempt, OAuthAttemptStore } from "../../stores/oauth-attempt-store.js";
 import type { SessionStore, UserSession } from "../../stores/session-store.js";
 import type { ZhihuOAuthClient } from "./zhihu-oauth-client.js";
 
@@ -21,6 +21,7 @@ export interface ZhihuOAuthServiceOptions {
 
 export interface StartZhihuOAuthResult {
   attemptId: string;
+  attempt: OAuthAttempt;
   authorizationUrl: string;
 }
 
@@ -28,6 +29,7 @@ export interface CompleteZhihuOAuthInput {
   attemptId: string;
   authorizationCode: string;
   returnedState?: string;
+  recoverableAttempt?: OAuthAttempt;
   session: UserSession;
 }
 
@@ -83,13 +85,14 @@ export class ZhihuOAuthService {
     ).toISOString();
     const returnTo = this.normalizeReturnTo(requestedReturnTo);
 
-    this.options.attemptStore.save({
+    const attempt: OAuthAttempt = {
       attemptId,
       sessionId: session.sessionId,
       state,
       returnTo,
       expiresAt,
-    });
+    };
+    this.options.attemptStore.save(attempt);
 
     const authorizationUrl = new URL("https://openapi.zhihu.com/authorize");
     authorizationUrl.search = new URLSearchParams({
@@ -101,14 +104,20 @@ export class ZhihuOAuthService {
 
     return {
       attemptId,
+      attempt,
       authorizationUrl: authorizationUrl.toString(),
     };
   }
 
   async complete(input: CompleteZhihuOAuthInput): Promise<CompleteZhihuOAuthResult> {
-    const attempt = this.options.attemptStore.take(input.attemptId);
+    const storedAttempt = this.options.attemptStore.take(input.attemptId);
+    const attempt = storedAttempt ?? input.recoverableAttempt;
     if (!attempt) {
       throw new InvalidOAuthAttemptError("OAuth 尝试不存在或已使用");
+    }
+
+    if (attempt.attemptId !== input.attemptId) {
+      throw new InvalidOAuthAttemptError("OAuth 尝试标识不匹配");
     }
 
     if (new Date(attempt.expiresAt).getTime() <= this.now().getTime()) {

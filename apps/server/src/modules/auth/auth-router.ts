@@ -77,7 +77,7 @@ export function createAuthRouter(options: AuthRouterOptions): Router {
       );
       options.sessionStore.save(session);
       options.accountStore.ensure(session.user.userId);
-      setSessionCookie(response, session.sessionId, options.secureCookies);
+      setSessionCookie(response, session, options.secureCookies);
       response.status(201).json(toSessionResponse(session, options.accountStore));
     });
   }
@@ -93,7 +93,7 @@ export function createAuthRouter(options: AuthRouterOptions): Router {
 
     const existingSession = readSession(request, options.sessionStore);
     if (existingSession) {
-      setSessionCookie(response, existingSession.sessionId, options.secureCookies);
+      setSessionCookie(response, existingSession, options.secureCookies);
       response.status(200).json(toSessionResponse(existingSession, options.accountStore));
       return;
     }
@@ -101,7 +101,7 @@ export function createAuthRouter(options: AuthRouterOptions): Router {
     const session = createGuestSession(parsedBody.data.displayName);
     options.sessionStore.save(session);
     options.accountStore.ensure(session.user.userId);
-    setSessionCookie(response, session.sessionId, options.secureCookies);
+    setSessionCookie(response, session, options.secureCookies);
     response.status(201).json(toSessionResponse(session, options.accountStore));
   });
 
@@ -134,13 +134,13 @@ export function createAuthRouter(options: AuthRouterOptions): Router {
       session = createGuestSession();
       options.sessionStore.save(session);
       options.accountStore.ensure(session.user.userId);
-      setSessionCookie(response, session.sessionId, options.secureCookies);
+      setSessionCookie(response, session, options.secureCookies);
     }
 
     const authorization = options.zhihuOAuthService.start(session, parsedQuery.data.returnTo);
     setOAuthAttemptCookie(
       response,
-      authorization.attemptId,
+      authorization.attempt,
       options.secureCookies,
       options.zhihuOAuthService.attemptTtlMilliseconds,
     );
@@ -154,11 +154,11 @@ export function createAuthRouter(options: AuthRouterOptions): Router {
     }
 
     const parsedQuery = callbackQuerySchema.safeParse(request.query);
-    const attemptId = readOAuthAttemptCookie(request);
+    const attempt = readOAuthAttemptCookie(request);
     const session = readSession(request, options.sessionStore);
     clearOAuthAttemptCookie(response, options.secureCookies);
 
-    if (!parsedQuery.success || !attemptId || !session) {
+    if (!parsedQuery.success || !attempt || !session) {
       sendApiError(response, 400, "INVALID_OAUTH_CALLBACK", "OAuth 回调无效或已过期", {
         issues: parsedQuery.success ? [] : parsedQuery.error.issues,
       });
@@ -167,12 +167,13 @@ export function createAuthRouter(options: AuthRouterOptions): Router {
 
     try {
       const completed = await options.zhihuOAuthService.complete({
-        attemptId,
+        attemptId: attempt.attemptId,
         authorizationCode: parsedQuery.data.authorization_code,
+        recoverableAttempt: attempt,
         ...(parsedQuery.data.state ? { returnedState: parsedQuery.data.state } : {}),
         session,
       });
-      setSessionCookie(response, completed.session.sessionId, options.secureCookies);
+      setSessionCookie(response, completed.session, options.secureCookies);
       response.redirect(302, completed.redirectUrl);
     } catch (error) {
       if (error instanceof InvalidOAuthAttemptError) {

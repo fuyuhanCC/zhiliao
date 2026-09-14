@@ -14,6 +14,11 @@ import { ZhihuOAuthService } from "./zhihu-oauth-service.js";
 
 const sessionSecret = "test-session-secret-with-at-least-32-characters";
 
+function normalizeSetCookies(value: string | string[] | undefined): string[] {
+  if (!value) return [];
+  return Array.isArray(value) ? value : [value];
+}
+
 function createSuccessfulClient(): ZhihuOAuthClient {
   return {
     exchangeAuthorizationCode: vi.fn(async () => ({
@@ -105,9 +110,7 @@ describe("Zhihu OAuth routes", () => {
       .query({ authorization_code: "authorization-code", state })
       .expect(302);
 
-    expect(callback.headers.location).toBe(
-      "http://localhost:5173/rooms/room_123?from=lobby",
-    );
+    expect(callback.headers.location).toBe("http://localhost:5173/rooms/room_123?from=lobby");
     expect(client.exchangeAuthorizationCode).toHaveBeenCalledWith("authorization-code");
 
     const upgradedSession = await agent.get("/api/v1/auth/session").expect(200);
@@ -124,6 +127,40 @@ describe("Zhihu OAuth routes", () => {
     });
     expect(JSON.stringify(upgradedSession.body)).not.toContain("oauth-access-token");
     expect(upgradedSession.body.permissions).toEqual({
+      canCreateRoom: true,
+      canRequestSeat: true,
+      canSpeak: true,
+    });
+  });
+
+  it("completes OAuth when the callback reaches a fresh server instance", async () => {
+    const client = createSuccessfulClient();
+    const firstInstance = createTestContext(client);
+    const firstAgent = request.agent(firstInstance.app);
+    const { response: authorizeResponse, state } = await beginAuthorization(firstAgent);
+    const callbackCookies = normalizeSetCookies(authorizeResponse.headers["set-cookie"]).map(
+      (cookie: string) => cookie.split(";", 1)[0]!,
+    );
+    expect(callbackCookies).toHaveLength(2);
+
+    const secondInstance = createTestContext(client);
+    const callback = await request(secondInstance.app)
+      .get("/api/v1/auth/zhihu/callback")
+      .set("Cookie", callbackCookies.join("; "))
+      .query({ authorization_code: "authorization-code", state })
+      .expect(302);
+    const upgradedCookie = normalizeSetCookies(callback.headers["set-cookie"])
+      .map((cookie: string) => cookie.split(";", 1)[0]!)
+      .find((cookie) => cookie.startsWith("zhiliao_session="));
+    expect(upgradedCookie).toBeTruthy();
+
+    const thirdInstance = createTestContext(client);
+    const restored = await request(thirdInstance.app)
+      .get("/api/v1/auth/session")
+      .set("Cookie", upgradedCookie!)
+      .expect(200);
+    expect(restored.body.user.identityType).toBe("zhihu");
+    expect(restored.body.permissions).toEqual({
       canCreateRoom: true,
       canRequestSeat: true,
       canSpeak: true,

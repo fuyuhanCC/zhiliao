@@ -11,6 +11,7 @@ import {
   listRoomMessages,
   listRooms,
   listSpeechTurns,
+  logoutSession,
 } from "./api-client";
 
 const sessionResponse = {
@@ -91,6 +92,18 @@ describe("api client", () => {
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/v1/rooms?type=hot&limit=20",
       expect.objectContaining({ credentials: "include" }),
+    );
+  });
+
+  it("logs out through the session endpoint", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await logoutSession();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/v1/auth/logout",
+      expect.objectContaining({ method: "POST", credentials: "include" }),
     );
   });
 

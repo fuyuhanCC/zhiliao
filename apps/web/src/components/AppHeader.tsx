@@ -14,6 +14,7 @@ export function AppHeader({ activeTab, onTabChange, onAccountClick }: AppHeaderP
   const session = useSessionStore((state) => state.session);
   const displayName = session?.user.displayName ?? "访客";
   const initial = displayName.trim().charAt(0) || "知";
+  const isZhihuUser = session?.user.identityType === "zhihu";
 
   return (
     <header className="border-b border-slate-200/80 bg-white/90 backdrop-blur">
@@ -60,7 +61,9 @@ export function AppHeader({ activeTab, onTabChange, onAccountClick }: AppHeaderP
         >
           <span className="hidden sm:block">
             <span className="block text-xs text-slate-500">
-              {session ? `${session.account.coinBalance} 知豆` : "正在连接…"}
+              {session
+                ? `${isZhihuUser ? "知乎用户" : "游客"} · ${session.account.coinBalance} 知豆`
+                : "正在连接…"}
             </span>
             <span className="block text-xs font-medium text-blue-600">
               {session ? `Lv.${session.account.level} ${session.account.levelTitle}` : "读取账户"}

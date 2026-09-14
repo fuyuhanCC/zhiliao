@@ -116,6 +116,10 @@ export async function ensureSession(signal?: AbortSignal): Promise<SessionRespon
   }
 }
 
+export function logoutSession(): Promise<void> {
+  return request<void>("/auth/logout", { method: "POST" });
+}
+
 export function listRooms(type: RoomType, signal?: AbortSignal): Promise<RoomPage> {
   const query = new URLSearchParams({ type, limit: "20" });
   return request<RoomPage>(`/rooms?${query.toString()}`, signal ? { signal } : {});

@@ -49,8 +49,12 @@ docs/
 ```bash
 pnpm install
 cp .env.example .env
+cp .env.development.example .env.development
+cp .env.production.example .env.production
 pnpm dev
 ```
+
+`.env` 保存共享配置与服务端密钥；`.env.development` 和 `.env.production` 分别保存本地、线上地址及环境开关。真实环境文件均被 Git 忽略，切勿提交。
 
 - Web 开发地址：`http://localhost:5173`
 - Server 地址：`http://localhost:3000`

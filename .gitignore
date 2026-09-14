@@ -27,6 +27,8 @@ recordings/
 .env
 .env.*
 !.env.example
+!.env.development.example
+!.env.production.example
 *.pem
 *.key
 service-account*.json

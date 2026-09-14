@@ -61,6 +61,25 @@ describe("auth routes", () => {
     expect(session.body.user.userId).toBe(created.body.user.userId);
   });
 
+  it("recovers the basic session identity after the in-memory store is replaced", async () => {
+    const created = await request(createTestApp())
+      .post("/api/v1/auth/guest")
+      .send({ displayName: "可恢复访客" });
+    const sessionCookie = created.headers["set-cookie"]?.[0]?.split(";", 1)[0];
+    expect(sessionCookie).toBeTruthy();
+
+    const restored = await request(createTestApp())
+      .get("/api/v1/auth/session")
+      .set("Cookie", sessionCookie!);
+
+    expect(restored.status).toBe(200);
+    expect(restored.body.user).toMatchObject({
+      userId: created.body.user.userId,
+      identityType: "guest",
+      displayName: "可恢复访客",
+    });
+  });
+
   it("rejects invalid guest session input with a traceable error", async () => {
     const response = await request(createTestApp())
       .post("/api/v1/auth/guest")

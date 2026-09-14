@@ -23,7 +23,7 @@ import {
   type RoomParticipant,
 } from "../domain/room/realtime-room-service.js";
 import { withAccountProgression } from "../domain/account/user-account.js";
-import { SESSION_COOKIE_NAME } from "../modules/auth/session.js";
+import { readSessionCookieValue, SESSION_COOKIE_NAME } from "../modules/auth/session.js";
 import type { AccountStore } from "../stores/account-store.js";
 import type { ChatStore } from "../stores/chat-store.js";
 import type { RoomStore, RoomSnapshot } from "../stores/room-store.js";
@@ -154,8 +154,10 @@ function readSessionFromHandshake(
   if (!signedValue) {
     return undefined;
   }
-  const sessionId = cookieParser.signedCookie(signedValue, sessionSecret);
-  return typeof sessionId === "string" ? sessionStore.get(sessionId) : undefined;
+  const cookieValue = cookieParser.signedCookie(signedValue, sessionSecret);
+  return typeof cookieValue === "string"
+    ? readSessionCookieValue(cookieValue, sessionStore)
+    : undefined;
 }
 
 function authenticationError(): Error & { data?: CommandError } {
@@ -512,10 +514,10 @@ export function registerRealtimeGateway(
         delete socket.data.roomId;
       }
 
-      const result = service.join(
-        command.roomId,
-        { sessionId: socket.data.session.sessionId, user: socket.data.session.user },
-      );
+      const result = service.join(command.roomId, {
+        sessionId: socket.data.session.sessionId,
+        user: socket.data.session.user,
+      });
       if (result.ok) {
         await socket.join(command.roomId);
         socket.data.roomId = command.roomId;
