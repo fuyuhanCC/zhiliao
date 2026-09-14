@@ -1,6 +1,7 @@
 import type {
   CommandAck,
   CommandAckFailure,
+  ChatCreatedData,
   CooldownUpdatedData,
   PresenceUpdatedData,
   QueueUpdatedData,
@@ -31,13 +32,19 @@ export type RoomConnectionStatus =
   "idle" | "connecting" | "connected" | "reconnecting" | "error" | "closed";
 
 export type RoomAction =
-  "request-seat" | "cancel-seat" | "leave-seat" | "acquire-speaker" | "release-speaker";
+  | "request-seat"
+  | "cancel-seat"
+  | "leave-seat"
+  | "acquire-speaker"
+  | "release-speaker"
+  | "send-chat";
 
 interface UseRoomRealtimeOptions {
   roomId: string;
   enabled: boolean;
   snapshot: RoomSnapshot | null;
   onSnapshot: (snapshot: RoomSnapshot) => void;
+  onChatCreated: (message: ChatCreatedData) => void;
   onRoomClosed: () => void;
 }
 
@@ -53,6 +60,7 @@ interface UseRoomRealtimeResult {
   leaveSeat: () => Promise<CommandAck | null>;
   acquireSpeaker: () => Promise<CommandAck<SpeakerAcquireResult> | null>;
   releaseSpeaker: (speechTurnId: string) => Promise<CommandAck | null>;
+  sendChat: (content: string) => Promise<CommandAck | null>;
 }
 
 interface SocketError extends Error {
@@ -77,6 +85,7 @@ export function useRoomRealtime({
   enabled,
   snapshot,
   onSnapshot,
+  onChatCreated,
   onRoomClosed,
 }: UseRoomRealtimeOptions): UseRoomRealtimeResult {
   const [status, setStatus] = useState<RoomConnectionStatus>("idle");
@@ -86,6 +95,7 @@ export function useRoomRealtime({
   const [serverClockOffsetMilliseconds, setServerClockOffsetMilliseconds] = useState(0);
   const snapshotRef = useRef(snapshot);
   const onSnapshotRef = useRef(onSnapshot);
+  const onChatCreatedRef = useRef(onChatCreated);
   const onRoomClosedRef = useRef(onRoomClosed);
   const socketRef = useRef<AppSocket | null>(null);
   const joinedRef = useRef(false);
@@ -95,8 +105,9 @@ export function useRoomRealtime({
   useEffect(() => {
     snapshotRef.current = snapshot;
     onSnapshotRef.current = onSnapshot;
+    onChatCreatedRef.current = onChatCreated;
     onRoomClosedRef.current = onRoomClosed;
-  }, [onRoomClosed, onSnapshot, snapshot]);
+  }, [onChatCreated, onRoomClosed, onSnapshot, snapshot]);
 
   useEffect(() => {
     if (!enabled) {
@@ -265,6 +276,13 @@ export function useRoomRealtime({
       );
     }
 
+    function handleChatCreated(event: RoomEvent<ChatCreatedData>) {
+      applyVersionedEvent(event, (current, eventVersion, message) => {
+        onChatCreatedRef.current(message);
+        return advanceRoomVersion(current, eventVersion);
+      });
+    }
+
     function handleRoomClosed(event: RoomEvent<RoomClosedData>) {
       if (event.roomId === roomId) closeRoom();
     }
@@ -300,6 +318,7 @@ export function useRoomRealtime({
     socket.on("speaker:changed", handleSpeakerChanged);
     socket.on("speaker:tick", handleSpeakerTick);
     socket.on("cooldown:updated", handleCooldownUpdated);
+    socket.on("chat:created", handleChatCreated);
     socket.on("speech:closed", handleSpeechClosed);
     socket.on("room:closed", handleRoomClosed);
     setStatus("connecting");
@@ -433,6 +452,23 @@ export function useRoomRealtime({
     [executeCommand, roomId],
   );
 
+  const sendChat = useCallback(
+    (content: string) =>
+      executeCommand<Record<string, never>>("send-chat", (socket, commandRequestId, acknowledge) => {
+        socket.emit(
+          "chat:send",
+          {
+            requestId: commandRequestId,
+            roomId,
+            clientMessageId: `msg_client_${crypto.randomUUID()}`,
+            content,
+          },
+          acknowledge,
+        );
+      }),
+    [executeCommand, roomId],
+  );
+
   return {
     status,
     error,
@@ -445,5 +481,6 @@ export function useRoomRealtime({
     leaveSeat,
     acquireSpeaker,
     releaseSpeaker,
+    sendChat,
   };
 }

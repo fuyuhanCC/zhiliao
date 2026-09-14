@@ -35,3 +35,29 @@ button,
 a {
   -webkit-tap-highlight-color: transparent;
 }
+
+.danmaku-item {
+  animation-name: danmaku-fly;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+  left: 100%;
+  will-change: transform;
+}
+
+@keyframes danmaku-fly {
+  from {
+    transform: translateX(0);
+  }
+
+  to {
+    transform: translateX(calc(-100vw - 100%));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .danmaku-item {
+    animation: none;
+    left: auto;
+    right: 1rem;
+  }
+}

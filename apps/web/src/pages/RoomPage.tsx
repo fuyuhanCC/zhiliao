@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { AccountDialog } from "../components/AccountDialog";
@@ -24,6 +24,20 @@ import {
 import { useSessionStore } from "../stores/session-store";
 
 type LoadStatus = "loading" | "ready" | "error";
+const maximumVisibleMessages = 100;
+const maximumVisibleDanmakuMessages = 16;
+const danmakuLaneCount = 5;
+
+function mergeMessages(current: ChatMessage[], incoming: ChatMessage[]): ChatMessage[] {
+  const seen = new Set<string>();
+  const merged: ChatMessage[] = [];
+  for (const message of [...current, ...incoming]) {
+    if (seen.has(message.messageId)) continue;
+    seen.add(message.messageId);
+    merged.push(message);
+  }
+  return merged.slice(-maximumVisibleMessages);
+}
 
 function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
@@ -84,6 +98,40 @@ function countdownLabel(seconds: number): string {
   return `${minutes}:${String(seconds % 60).padStart(2, "0")}`;
 }
 
+function DanmakuLayer({ messages, enabled }: { messages: ChatMessage[]; enabled: boolean }) {
+  if (!enabled || messages.length === 0) return null;
+
+  return (
+    <div
+      aria-hidden="true"
+      className="pointer-events-none absolute inset-x-0 top-14 z-10 h-44 overflow-hidden"
+    >
+      <div className="absolute inset-0 bg-gradient-to-b from-white/75 via-white/30 to-transparent" />
+      {messages.map((message, index) => {
+        const lane = index % danmakuLaneCount;
+        const duration = 9 + (index % 4);
+        const stagger = (index % maximumVisibleDanmakuMessages) * 0.55;
+        return (
+          <span
+            className="danmaku-item absolute max-w-[min(72vw,520px)] truncate rounded-full border border-white/80 bg-slate-950/70 px-3 py-1.5 text-sm font-medium text-white shadow-lg shadow-slate-900/15 backdrop-blur"
+            key={message.messageId}
+            style={{
+              animationDelay: `-${stagger}s`,
+              animationDuration: `${duration}s`,
+              top: `${lane * 32}px`,
+            }}
+          >
+            <strong className="font-semibold text-sky-200">
+              {message.sender?.displayName ?? "知友"}：
+            </strong>
+            {message.content}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
 export function RoomPage() {
   const { roomId = "" } = useParams();
   const navigate = useNavigate();
@@ -100,6 +148,7 @@ export function RoomPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [messagesStatus, setMessagesStatus] = useState<LoadStatus>("loading");
   const [messagesError, setMessagesError] = useState<string | null>(null);
+  const [chatDraft, setChatDraft] = useState("");
   const [speechTurnsPage, setSpeechTurnsPage] = useState<SpeechTurnPage | null>(null);
   const [speechTurnsStatus, setSpeechTurnsStatus] = useState<LoadStatus>("loading");
   const [speechTurnsError, setSpeechTurnsError] = useState<string | null>(null);
@@ -107,9 +156,11 @@ export function RoomPage() {
   const [summaryError, setSummaryError] = useState<string | null>(null);
   const [materialsOpen, setMaterialsOpen] = useState(false);
   const [logOpen, setLogOpen] = useState(false);
+  const [danmakuEnabled, setDanmakuEnabled] = useState(true);
   const [accountOpen, setAccountOpen] = useState(false);
   const [roomActionNotice, setRoomActionNotice] = useState<string | null>(null);
   const [clockTick, setClockTick] = useState(() => Date.now());
+  const messageListRef = useRef<HTMLDivElement | null>(null);
   const summaryRequestVersion = useRef<number | null>(null);
   const summaryRequestSequence = useRef(0);
 
@@ -153,7 +204,7 @@ export function RoomPage() {
 
         void listRoomMessages(roomId, controller.signal)
           .then((page) => {
-            setMessages(page.items);
+            setMessages((current) => mergeMessages(page.items, current));
             setMessagesStatus("ready");
           })
           .catch((error: unknown) => {
@@ -244,11 +295,18 @@ export function RoomPage() {
     navigate("/", { replace: true, state: { notice: "房间已结束" } });
   }, [navigate]);
 
+  const handleChatCreated = useCallback((message: ChatMessage) => {
+    setMessages((current) => mergeMessages(current, [message]));
+    setMessagesStatus("ready");
+    setMessagesError(null);
+  }, []);
+
   const realtime = useRoomRealtime({
     roomId,
     enabled: pageStatus === "ready" && sessionStatus === "ready" && snapshot !== null,
     snapshot,
     onSnapshot: setSnapshot,
+    onChatCreated: handleChatCreated,
     onRoomClosed: handleRoomClosed,
   });
 
@@ -270,6 +328,12 @@ export function RoomPage() {
     const timer = window.setInterval(() => setClockTick(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, [trackedExpiry]);
+
+  useEffect(() => {
+    if (messagesStatus !== "ready") return;
+    const list = messageListRef.current;
+    list?.scrollTo({ top: list.scrollHeight, behavior: "smooth" });
+  }, [messages.length, messagesStatus]);
 
   function requireZhihuLogin(): boolean {
     if (currentUser?.identityType === "zhihu") return true;
@@ -345,6 +409,22 @@ export function RoomPage() {
       setMaterialsError(errorMessage(error, "背景资料加载失败"));
     }
   }
+
+  async function sendChatMessage(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const content = chatDraft.trim();
+    if (!content || roomActionDisabled) return;
+    const ack = await realtime.sendChat(content);
+    if (ack?.ok) setChatDraft("");
+  }
+
+  const danmakuMessages = useMemo(
+    () =>
+      messages
+        .filter((message) => message.type === "text")
+        .slice(-maximumVisibleDanmakuMessages),
+    [messages],
+  );
 
   if (pageStatus === "loading") {
     return (
@@ -471,21 +551,21 @@ export function RoomPage() {
               </div>
             </div>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-col items-end">
             <button
-              className="cursor-not-allowed rounded-xl bg-orange-50 px-4 py-2 text-sm text-orange-400"
-              disabled
-              title="弹幕开关将在实时房间阶段接入"
-              type="button"
-            >
-              弹幕
-            </button>
-            <button
-              className="rounded-xl bg-blue-50 px-4 py-2 text-sm font-medium text-blue-600 hover:bg-blue-100"
+              aria-label="打开本场辩论日志"
+              className="flex max-w-60 items-end gap-2 rounded-2xl bg-white px-2 py-2 text-left transition hover:bg-blue-50 focus:outline-none focus:ring-2 focus:ring-blue-100"
               onClick={() => setLogOpen(true)}
               type="button"
             >
-              辩论日志
+              <img
+                alt="AI 刘看山"
+                className="h-20 w-20 shrink-0 object-contain"
+                src="/characters/liukanshan-log.gif"
+              />
+              <span className="mb-2 rounded-2xl rounded-bl-sm bg-blue-50 px-3 py-2 text-xs leading-5 text-blue-700">
+                我会把本场发言整理成清晰的辩论日志。
+              </span>
             </button>
           </div>
         </header>
@@ -500,9 +580,10 @@ export function RoomPage() {
         />
 
         <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
-          <section className="rounded-3xl border border-slate-200 bg-white p-5 lg:p-7">
+          <section className="relative overflow-hidden rounded-3xl border border-slate-200 bg-white p-5 lg:p-7">
+            <DanmakuLayer enabled={danmakuEnabled} messages={danmakuMessages} />
             <div
-              className={`flex items-center gap-2 text-sm font-medium ${speaker ? "text-orange-600" : "text-slate-500"}`}
+              className={`relative z-20 flex items-center gap-2 text-sm font-medium ${speaker ? "text-orange-600" : "text-slate-500"}`}
             >
               <span
                 className={`size-2 rounded-full ${speaker ? "bg-orange-500" : "bg-slate-300"}`}
@@ -517,7 +598,7 @@ export function RoomPage() {
                 {room.seatedCount}/6 上麦
               </span>
             </div>
-            <div className="mt-7 grid grid-cols-3 gap-x-4 gap-y-8">
+            <div className="relative z-20 mt-7 grid grid-cols-3 gap-x-4 gap-y-8">
               {seats.map((seat) => {
                 const occupant = seat.occupant;
                 const speaking = occupant?.userId === speaker?.userId;
@@ -584,14 +665,14 @@ export function RoomPage() {
               })}
             </div>
             {currentSeat ? (
-              <p className="mt-6 rounded-2xl bg-slate-50 px-4 py-3 text-center text-xs leading-5 text-slate-500">
+              <p className="relative z-20 mt-6 rounded-2xl bg-slate-50 px-4 py-3 text-center text-xs leading-5 text-slate-500">
                 {roomAudio.isPublishing
                   ? "麦克风已开启，结束发言或下麦会立即停止音频传输。"
                   : "点击“开始发言”后浏览器会请求麦克风权限；只有获得发言权时才会传输音频。"}
               </p>
             ) : null}
             {currentUserQueueEntry ? (
-              <div className="mt-7 flex items-center justify-center gap-3 rounded-2xl bg-blue-50 p-3 text-sm text-blue-700">
+              <div className="relative z-20 mt-7 flex items-center justify-center gap-3 rounded-2xl bg-blue-50 p-3 text-sm text-blue-700">
                 <span>你当前排在上麦队列第 {currentUserQueueEntry.position} 位</span>
                 <button
                   className="rounded-lg bg-white px-2.5 py-1 text-xs font-medium text-blue-600 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-50"
@@ -610,7 +691,7 @@ export function RoomPage() {
               <h2 className="font-semibold text-slate-800">公屏</h2>
               <p className="mt-1 text-xs text-slate-400">聊天 · 打赏 · 系统消息</p>
             </div>
-            <div className="flex-1 space-y-3 overflow-y-auto p-4">
+            <div className="flex-1 space-y-3 overflow-y-auto p-4" ref={messageListRef}>
               {messagesStatus === "loading" ? (
                 <p className="text-sm text-slate-400">正在读取公屏消息…</p>
               ) : null}
@@ -641,20 +722,38 @@ export function RoomPage() {
               )}
             </div>
             <div className="border-t border-slate-100 p-3">
-              <div className="flex gap-2">
+              <form className="flex gap-2" onSubmit={(event) => void sendChatMessage(event)}>
                 <input
-                  className="min-w-0 flex-1 cursor-not-allowed rounded-xl bg-slate-100 px-3 py-2 text-sm text-slate-400"
-                  disabled
-                  placeholder="实时连接后可发送消息"
+                  className="min-w-0 flex-1 rounded-xl bg-slate-100 px-3 py-2 text-sm text-slate-700 outline-none transition focus:bg-white focus:ring-2 focus:ring-blue-100 disabled:cursor-not-allowed disabled:text-slate-400"
+                  disabled={roomActionDisabled}
+                  maxLength={200}
+                  onChange={(event) => setChatDraft(event.target.value)}
+                  placeholder={
+                    realtime.status === "connected" ? "说点什么…" : "实时连接后可发送消息"
+                  }
+                  value={chatDraft}
                 />
                 <button
-                  className="cursor-not-allowed rounded-xl bg-slate-200 px-4 text-sm font-medium text-slate-400"
-                  disabled
-                  type="button"
+                  className="rounded-xl bg-blue-600 px-4 text-sm font-medium text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400"
+                  disabled={roomActionDisabled || chatDraft.trim().length === 0}
+                  type="submit"
                 >
                   发送
                 </button>
-              </div>
+                <button
+                  aria-pressed={danmakuEnabled}
+                  className={`rounded-xl px-3 text-sm font-medium transition ${
+                    danmakuEnabled
+                      ? "bg-orange-500 text-white shadow-sm shadow-orange-100 hover:bg-orange-600"
+                      : "bg-slate-100 text-slate-500 hover:bg-slate-200"
+                  }`}
+                  onClick={() => setDanmakuEnabled((value) => !value)}
+                  title={danmakuEnabled ? "关闭飘屏弹幕" : "开启飘屏弹幕"}
+                  type="button"
+                >
+                  {danmakuEnabled ? "弹幕开" : "弹幕关"}
+                </button>
+              </form>
             </div>
           </section>
         </div>

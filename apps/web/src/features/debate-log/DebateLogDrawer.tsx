@@ -191,6 +191,17 @@ export function DebateLogDrawer({
         ) : (
           <SummaryContent summary={summary} />
         )}
+
+        <section className="flex items-end justify-center gap-3 pt-2">
+          <img
+            alt="AI 刘看山"
+            className="h-32 w-32 shrink-0 object-contain"
+            src="/characters/liukanshan-log.gif"
+          />
+          <p className="mb-5 max-w-40 rounded-2xl rounded-bl-sm bg-blue-50 px-4 py-3 text-sm leading-6 text-blue-700">
+            我会把本场发言整理成清晰的辩论日志。
+          </p>
+        </section>
       </div>
     </aside>
   );
