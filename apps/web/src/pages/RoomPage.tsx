@@ -6,6 +6,7 @@ import { AppHeader } from "../components/AppHeader";
 import { DebateLogDrawer } from "../features/debate-log/DebateLogDrawer";
 import { RoomMaterials } from "../features/room/RoomMaterials";
 import { useRoomRealtime, type RoomConnectionStatus } from "../features/room/use-room-realtime";
+import { useRoomAudio, type RoomAudioStatus } from "../features/rtc/use-room-audio";
 import {
   ApiError,
   generateRoomSummary,
@@ -54,6 +55,22 @@ function connectionLabel(status: RoomConnectionStatus): string {
       return "房间已结束";
     default:
       return "准备实时连接";
+  }
+}
+
+function audioConnectionLabel(status: RoomAudioStatus, isPublishing: boolean): string {
+  if (isPublishing) return "麦克风正在传输";
+  switch (status) {
+    case "connected":
+      return "语音已连接";
+    case "connecting":
+      return "语音连接中";
+    case "unavailable":
+      return "语音服务未配置";
+    case "error":
+      return "语音连接失败";
+    default:
+      return "准备语音连接";
   }
 }
 
@@ -238,6 +255,13 @@ export function RoomPage() {
   const currentSeat = snapshot?.seats.find((seat) => seat.occupant?.userId === currentUserId);
   const currentUserQueueEntry = snapshot?.queue.find((entry) => entry.userId === currentUserId);
   const currentCooldown = snapshot?.cooldowns.find((cooldown) => cooldown.userId === currentUserId);
+  const currentUserIsSpeaker = snapshot?.speakerLock?.userId === currentUserId;
+  const roomAudio = useRoomAudio({
+    roomId,
+    enabled: realtime.status === "connected" && sessionStatus === "ready" && snapshot !== null,
+    isSeated: currentSeat !== undefined,
+    isSpeaker: currentUserIsSpeaker,
+  });
   const trackedExpiry = `${snapshot?.speakerLock?.expiresAt ?? ""}|${currentCooldown?.expiresAt ?? ""}`;
 
   useEffect(() => {
@@ -275,21 +299,36 @@ export function RoomPage() {
 
   async function leaveSeat() {
     setRoomActionNotice(null);
+    await roomAudio.stopPublishing();
     const ack = await realtime.leaveSeat();
     if (ack?.ok) setRoomActionNotice("已下麦");
   }
 
   async function acquireSpeaker() {
     if (!requireZhihuLogin()) return;
+    if (roomAudio.status !== "connected") {
+      setRoomActionNotice(roomAudio.error ?? "实时语音尚未连接，请稍后再试");
+      return;
+    }
     setRoomActionNotice(null);
     const ack = await realtime.acquireSpeaker();
-    if (ack?.ok) setRoomActionNotice("已获得发言权");
+    if (!ack?.ok) return;
+
+    const published = await roomAudio.startPublishing();
+    if (published.ok) {
+      setRoomActionNotice("已获得发言权，麦克风已开启");
+      return;
+    }
+
+    await realtime.releaseSpeaker(ack.data.speechTurnId);
+    setRoomActionNotice(published.message ?? "麦克风启动失败，已释放发言权");
   }
 
   async function releaseSpeaker() {
     const speechTurnId = snapshot?.speakerLock?.speechTurnId;
     if (!speechTurnId) return;
     setRoomActionNotice(null);
+    await roomAudio.stopPublishing();
     const ack = await realtime.releaseSpeaker(speechTurnId);
     if (ack?.ok) setRoomActionNotice("本轮发言已结束，已进入冷却");
   }
@@ -355,7 +394,6 @@ export function RoomPage() {
     ? seats.find((seat) => seat.seatNumber === speakerLock.seatNumber)
     : undefined;
   const speaker = speakerSeat?.occupant ?? null;
-  const currentUserIsSpeaker = speakerLock?.userId === currentUserId;
   const serverNowMilliseconds = clockTick + realtime.serverClockOffsetMilliseconds;
   const speakerRemainingSeconds = remainingSeconds(speakerLock?.expiresAt, serverNowMilliseconds);
   const cooldownRemainingSeconds = remainingSeconds(
@@ -403,6 +441,34 @@ export function RoomPage() {
                 {connectionLabel(realtime.status)}
                 {realtime.error ? ` · ${realtime.error}` : ""}
               </p>
+              <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
+                <span
+                  className={
+                    roomAudio.status === "connected"
+                      ? roomAudio.isPublishing
+                        ? "text-orange-600"
+                        : "text-emerald-600"
+                      : roomAudio.status === "error" || roomAudio.status === "unavailable"
+                        ? "text-rose-600"
+                        : "text-amber-600"
+                  }
+                >
+                  {audioConnectionLabel(roomAudio.status, roomAudio.isPublishing)}
+                  {roomAudio.remoteAudioCount > 0
+                    ? ` · ${roomAudio.remoteAudioCount} 路远端音频`
+                    : ""}
+                  {roomAudio.error ? ` · ${roomAudio.error}` : ""}
+                </span>
+                {roomAudio.playbackBlocked ? (
+                  <button
+                    className="rounded-lg bg-blue-50 px-2 py-1 font-medium text-blue-600 hover:bg-blue-100"
+                    onClick={() => void roomAudio.resumePlayback()}
+                    type="button"
+                  >
+                    点击恢复声音
+                  </button>
+                ) : null}
+              </div>
             </div>
           </div>
           <div className="flex gap-2">
@@ -517,6 +583,13 @@ export function RoomPage() {
                 );
               })}
             </div>
+            {currentSeat ? (
+              <p className="mt-6 rounded-2xl bg-slate-50 px-4 py-3 text-center text-xs leading-5 text-slate-500">
+                {roomAudio.isPublishing
+                  ? "麦克风已开启，结束发言或下麦会立即停止音频传输。"
+                  : "点击“开始发言”后浏览器会请求麦克风权限；只有获得发言权时才会传输音频。"}
+              </p>
+            ) : null}
             {currentUserQueueEntry ? (
               <div className="mt-7 flex items-center justify-center gap-3 rounded-2xl bg-blue-50 p-3 text-sm text-blue-700">
                 <span>你当前排在上麦队列第 {currentUserQueueEntry.position} 位</span>
@@ -647,7 +720,8 @@ export function RoomPage() {
                   disabled={
                     roomActionDisabled ||
                     (!currentUserIsSpeaker && Boolean(speakerLock)) ||
-                    (!currentUserIsSpeaker && cooldownRemainingSeconds > 0)
+                    (!currentUserIsSpeaker && cooldownRemainingSeconds > 0) ||
+                    (!currentUserIsSpeaker && roomAudio.status !== "connected")
                   }
                   onClick={() => void (currentUserIsSpeaker ? releaseSpeaker() : acquireSpeaker())}
                   type="button"
@@ -662,7 +736,11 @@ export function RoomPage() {
                           ? `等待 ${speaker.displayName}`
                           : cooldownRemainingSeconds > 0
                             ? `冷却 ${cooldownRemainingSeconds}s`
-                            : "开始发言"}
+                            : roomAudio.status === "connecting"
+                              ? "语音连接中…"
+                              : roomAudio.status !== "connected"
+                                ? "语音不可用"
+                                : "开始发言"}
                 </button>
               </>
             ) : (

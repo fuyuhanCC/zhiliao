@@ -8,6 +8,7 @@ export type Room = components["schemas"]["Room"];
 export type RoomPage = components["schemas"]["RoomPage"];
 export type RoomType = components["schemas"]["RoomType"];
 export type RoomSnapshot = components["schemas"]["RoomSnapshot"];
+export type RtcCredentials = components["schemas"]["RtcCredentials"];
 export type RoomMaterial = components["schemas"]["RoomMaterial"];
 export type RoomMaterialPage = components["schemas"]["RoomMaterialPage"];
 export type ChatMessage = components["schemas"]["ChatMessage"];
@@ -141,6 +142,20 @@ function roomResourcePath(roomId: string, resource = ""): string {
 
 export function getRoom(roomId: string, signal?: AbortSignal): Promise<RoomSnapshot> {
   return request<RoomSnapshot>(roomResourcePath(roomId), signal ? { signal } : {});
+}
+
+export function createRtcCredentials(
+  roomId: string,
+  signal?: AbortSignal,
+): Promise<RtcCredentials> {
+  return request<RtcCredentials>(roomResourcePath(roomId, "/rtc-credentials"), {
+    method: "POST",
+    headers: {
+      "Idempotency-Key": crypto.randomUUID(),
+    },
+    body: JSON.stringify({}),
+    ...(signal ? { signal } : {}),
+  });
 }
 
 export function listRoomMaterials(roomId: string, signal?: AbortSignal): Promise<RoomMaterialPage> {

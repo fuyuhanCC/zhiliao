@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   createRoom,
+  createRtcCredentials,
   ensureSession,
   generateRoomSummary,
   getRoom,
@@ -129,6 +130,7 @@ describe("api client", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     await getRoom("room 1");
+    await createRtcCredentials("room 1");
     await listRoomMaterials("room 1");
     await listRoomMessages("room 1");
     await listSpeechTurns("room 1");
@@ -137,13 +139,19 @@ describe("api client", () => {
 
     expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
       "/api/v1/rooms/room%201",
+      "/api/v1/rooms/room%201/rtc-credentials",
       "/api/v1/rooms/room%201/materials?limit=5",
       "/api/v1/rooms/room%201/messages?limit=30",
       "/api/v1/rooms/room%201/speech-turns?limit=50",
       "/api/v1/rooms/room%201/summary",
       "/api/v1/rooms/room%201/summary/generate",
     ]);
-    const summaryRequest = fetchMock.mock.calls[5]?.[1];
+    const rtcRequest = fetchMock.mock.calls[1]?.[1];
+    expect(rtcRequest?.method).toBe("POST");
+    expect(rtcRequest?.body).toBe(JSON.stringify({}));
+    expect(new Headers(rtcRequest?.headers).get("Idempotency-Key")).toBeTruthy();
+
+    const summaryRequest = fetchMock.mock.calls[6]?.[1];
     expect(summaryRequest?.method).toBe("POST");
     expect(new Headers(summaryRequest?.headers).get("Idempotency-Key")).toBeTruthy();
   });
