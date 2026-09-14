@@ -57,10 +57,21 @@ function connectionLabel(status: RoomConnectionStatus): string {
   }
 }
 
+function remainingSeconds(expiresAt: string | undefined, nowMilliseconds: number): number {
+  if (!expiresAt) return 0;
+  return Math.max(0, Math.ceil((Date.parse(expiresAt) - nowMilliseconds) / 1000));
+}
+
+function countdownLabel(seconds: number): string {
+  const minutes = Math.floor(seconds / 60);
+  return `${minutes}:${String(seconds % 60).padStart(2, "0")}`;
+}
+
 export function RoomPage() {
   const { roomId = "" } = useParams();
   const navigate = useNavigate();
-  const currentUserId = useSessionStore((state) => state.session?.user.userId);
+  const currentUser = useSessionStore((state) => state.session?.user);
+  const currentUserId = currentUser?.userId;
   const sessionStatus = useSessionStore((state) => state.status);
   const [pageStatus, setPageStatus] = useState<LoadStatus>("loading");
   const [pageError, setPageError] = useState<string | null>(null);
@@ -80,6 +91,8 @@ export function RoomPage() {
   const [materialsOpen, setMaterialsOpen] = useState(false);
   const [logOpen, setLogOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
+  const [roomActionNotice, setRoomActionNotice] = useState<string | null>(null);
+  const [clockTick, setClockTick] = useState(() => Date.now());
   const summaryRequestVersion = useRef<number | null>(null);
   const summaryRequestSequence = useRef(0);
 
@@ -101,6 +114,7 @@ export function RoomPage() {
     setSpeechTurnsError(null);
     setSummary(null);
     setSummaryError(null);
+    setRoomActionNotice(null);
 
     async function loadRoom() {
       try {
@@ -221,6 +235,65 @@ export function RoomPage() {
     onRoomClosed: handleRoomClosed,
   });
 
+  const currentSeat = snapshot?.seats.find((seat) => seat.occupant?.userId === currentUserId);
+  const currentUserQueueEntry = snapshot?.queue.find((entry) => entry.userId === currentUserId);
+  const currentCooldown = snapshot?.cooldowns.find((cooldown) => cooldown.userId === currentUserId);
+  const trackedExpiry = `${snapshot?.speakerLock?.expiresAt ?? ""}|${currentCooldown?.expiresAt ?? ""}`;
+
+  useEffect(() => {
+    setClockTick(Date.now());
+    if (trackedExpiry === "|") return;
+    const timer = window.setInterval(() => setClockTick(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [trackedExpiry]);
+
+  function requireZhihuLogin(): boolean {
+    if (currentUser?.identityType === "zhihu") return true;
+    realtime.clearActionError();
+    setRoomActionNotice("登录知乎后即可上麦和发言");
+    setAccountOpen(true);
+    return false;
+  }
+
+  async function requestSeat() {
+    if (!requireZhihuLogin()) return;
+    setRoomActionNotice(null);
+    const ack = await realtime.requestSeat();
+    if (!ack?.ok) return;
+    setRoomActionNotice(
+      ack.data.status === "seated"
+        ? `已进入 ${ack.data.seatNumber} 号麦位`
+        : `麦位已满，当前排队第 ${ack.data.queuePosition} 位`,
+    );
+  }
+
+  async function cancelSeatRequest() {
+    setRoomActionNotice(null);
+    const ack = await realtime.cancelSeatRequest();
+    if (ack?.ok) setRoomActionNotice("已取消上麦排队");
+  }
+
+  async function leaveSeat() {
+    setRoomActionNotice(null);
+    const ack = await realtime.leaveSeat();
+    if (ack?.ok) setRoomActionNotice("已下麦");
+  }
+
+  async function acquireSpeaker() {
+    if (!requireZhihuLogin()) return;
+    setRoomActionNotice(null);
+    const ack = await realtime.acquireSpeaker();
+    if (ack?.ok) setRoomActionNotice("已获得发言权");
+  }
+
+  async function releaseSpeaker() {
+    const speechTurnId = snapshot?.speakerLock?.speechTurnId;
+    if (!speechTurnId) return;
+    setRoomActionNotice(null);
+    const ack = await realtime.releaseSpeaker(speechTurnId);
+    if (ack?.ok) setRoomActionNotice("本轮发言已结束，已进入冷却");
+  }
+
   async function reloadMaterials() {
     setMaterialsStatus("loading");
     setMaterialsError(null);
@@ -277,12 +350,20 @@ export function RoomPage() {
     );
   }
 
-  const { room, seats, queue, speakerLock } = snapshot;
+  const { room, seats, speakerLock } = snapshot;
   const speakerSeat = speakerLock
     ? seats.find((seat) => seat.seatNumber === speakerLock.seatNumber)
     : undefined;
   const speaker = speakerSeat?.occupant ?? null;
-  const currentUserQueueEntry = queue.find((entry) => entry.userId === currentUserId);
+  const currentUserIsSpeaker = speakerLock?.userId === currentUserId;
+  const serverNowMilliseconds = clockTick + realtime.serverClockOffsetMilliseconds;
+  const speakerRemainingSeconds = remainingSeconds(speakerLock?.expiresAt, serverNowMilliseconds);
+  const cooldownRemainingSeconds = remainingSeconds(
+    currentCooldown?.expiresAt,
+    serverNowMilliseconds,
+  );
+  const actionPending = realtime.pendingAction !== null;
+  const roomActionDisabled = realtime.status !== "connected" || actionPending;
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
@@ -361,6 +442,11 @@ export function RoomPage() {
                 className={`size-2 rounded-full ${speaker ? "bg-orange-500" : "bg-slate-300"}`}
               />
               {speaker ? `${speaker.displayName}正在发言` : "等待下一位发言者"}
+              {speakerLock ? (
+                <span className="rounded-full bg-orange-50 px-2.5 py-1 text-xs tabular-nums text-orange-600">
+                  {countdownLabel(speakerRemainingSeconds)}
+                </span>
+              ) : null}
               <span className="ml-auto rounded-full bg-slate-50 px-3 py-1 text-xs text-slate-400">
                 {room.seatedCount}/6 上麦
               </span>
@@ -409,10 +495,17 @@ export function RoomPage() {
                     ) : (
                       <>
                         <button
-                          aria-label={`${seat.seatNumber} 号空麦位`}
-                          className="mx-auto grid size-16 cursor-not-allowed place-items-center rounded-full border-2 border-dashed border-slate-200 text-xl text-slate-300"
-                          disabled
-                          title="麦位操作将在实时房间阶段接入"
+                          aria-label="申请上麦，系统自动分配空麦位"
+                          className={`mx-auto grid size-16 place-items-center rounded-full border-2 border-dashed text-xl transition-colors ${
+                            currentSeat || currentUserQueueEntry || roomActionDisabled
+                              ? "cursor-not-allowed border-slate-200 text-slate-300"
+                              : "border-blue-300 text-blue-500 hover:border-blue-500 hover:bg-blue-50"
+                          }`}
+                          disabled={Boolean(
+                            currentSeat || currentUserQueueEntry || roomActionDisabled,
+                          )}
+                          onClick={() => void requestSeat()}
+                          title="系统会自动分配一个空麦位"
                           type="button"
                         >
                           +
@@ -425,9 +518,17 @@ export function RoomPage() {
               })}
             </div>
             {currentUserQueueEntry ? (
-              <p className="mt-7 rounded-2xl bg-blue-50 p-3 text-center text-sm text-blue-700">
-                你当前排在上麦队列第 {currentUserQueueEntry.position} 位
-              </p>
+              <div className="mt-7 flex items-center justify-center gap-3 rounded-2xl bg-blue-50 p-3 text-sm text-blue-700">
+                <span>你当前排在上麦队列第 {currentUserQueueEntry.position} 位</span>
+                <button
+                  className="rounded-lg bg-white px-2.5 py-1 text-xs font-medium text-blue-600 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-50"
+                  disabled={roomActionDisabled}
+                  onClick={() => void cancelSeatRequest()}
+                  type="button"
+                >
+                  取消排队
+                </button>
+              </div>
             ) : null}
           </section>
 
@@ -485,6 +586,27 @@ export function RoomPage() {
           </section>
         </div>
 
+        {roomActionNotice || realtime.actionError ? (
+          <div
+            className={`mt-4 flex items-center justify-between gap-3 rounded-2xl px-4 py-3 text-sm ${
+              realtime.actionError ? "bg-rose-50 text-rose-700" : "bg-emerald-50 text-emerald-700"
+            }`}
+          >
+            <span>{realtime.actionError ?? roomActionNotice}</span>
+            <button
+              aria-label="关闭操作提示"
+              className="shrink-0 rounded-lg px-2 py-1 hover:bg-white/60"
+              onClick={() => {
+                setRoomActionNotice(null);
+                realtime.clearActionError();
+              }}
+              type="button"
+            >
+              ×
+            </button>
+          </div>
+        ) : null}
+
         <footer className="sticky bottom-4 mt-4 flex flex-wrap items-center gap-2 rounded-2xl border border-slate-200 bg-white/95 p-3 shadow-xl shadow-slate-200/70 backdrop-blur">
           <button
             className="cursor-not-allowed rounded-xl px-4 py-2.5 text-sm text-slate-400"
@@ -505,14 +627,67 @@ export function RoomPage() {
               {amount}
             </button>
           ))}
-          <button
-            className="ml-auto cursor-not-allowed rounded-xl bg-slate-200 px-6 py-3 text-sm font-semibold text-slate-400"
-            disabled
-            title="上麦将在实时房间阶段接入"
-            type="button"
-          >
-            上麦
-          </button>
+          <div className="ml-auto flex items-center gap-2">
+            {currentSeat ? (
+              <>
+                <button
+                  className="rounded-xl border border-slate-200 px-4 py-3 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  disabled={roomActionDisabled}
+                  onClick={() => void leaveSeat()}
+                  type="button"
+                >
+                  {realtime.pendingAction === "leave-seat" ? "下麦中…" : "下麦"}
+                </button>
+                <button
+                  className={`rounded-xl px-6 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50 ${
+                    currentUserIsSpeaker
+                      ? "bg-rose-500 hover:bg-rose-600"
+                      : "bg-blue-600 hover:bg-blue-700"
+                  }`}
+                  disabled={
+                    roomActionDisabled ||
+                    (!currentUserIsSpeaker && Boolean(speakerLock)) ||
+                    (!currentUserIsSpeaker && cooldownRemainingSeconds > 0)
+                  }
+                  onClick={() => void (currentUserIsSpeaker ? releaseSpeaker() : acquireSpeaker())}
+                  type="button"
+                >
+                  {realtime.pendingAction === "acquire-speaker"
+                    ? "申请中…"
+                    : realtime.pendingAction === "release-speaker"
+                      ? "结束中…"
+                      : currentUserIsSpeaker
+                        ? `结束发言 ${countdownLabel(speakerRemainingSeconds)}`
+                        : speaker
+                          ? `等待 ${speaker.displayName}`
+                          : cooldownRemainingSeconds > 0
+                            ? `冷却 ${cooldownRemainingSeconds}s`
+                            : "开始发言"}
+                </button>
+              </>
+            ) : (
+              <button
+                className={`rounded-xl px-6 py-3 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                  currentUserQueueEntry
+                    ? "bg-blue-50 text-blue-700 hover:bg-blue-100"
+                    : "bg-blue-600 text-white hover:bg-blue-700"
+                }`}
+                disabled={roomActionDisabled}
+                onClick={() => void (currentUserQueueEntry ? cancelSeatRequest() : requestSeat())}
+                type="button"
+              >
+                {realtime.pendingAction === "request-seat"
+                  ? "申请中…"
+                  : realtime.pendingAction === "cancel-seat"
+                    ? "取消中…"
+                    : currentUserQueueEntry
+                      ? `取消排队（第 ${currentUserQueueEntry.position} 位）`
+                      : currentUser?.identityType === "guest"
+                        ? "登录后上麦"
+                        : "上麦"}
+              </button>
+            )}
+          </div>
         </footer>
       </main>
 

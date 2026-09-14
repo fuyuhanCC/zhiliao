@@ -1,12 +1,37 @@
-import type { CommandAck, PresenceUpdatedData, RoomClosedData, RoomEvent } from "@zhiliao/shared";
-import { useEffect, useRef, useState } from "react";
+import type {
+  CommandAck,
+  CommandAckFailure,
+  CooldownUpdatedData,
+  PresenceUpdatedData,
+  QueueUpdatedData,
+  RoomClosedData,
+  RoomEvent,
+  SeatRequestResult,
+  SeatUpdatedData,
+  SpeakerAcquireResult,
+  SpeakerChangedData,
+  SpeakerTickData,
+  SpeechClosedData,
+} from "@zhiliao/shared";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { RoomSnapshot } from "../../lib/api-client";
-import { createAppSocket } from "../../lib/socket";
-import { applyPresenceUpdate, classifyRoomEvent } from "./realtime-room-state";
+import { createAppSocket, type AppSocket } from "../../lib/socket";
+import {
+  advanceRoomVersion,
+  applyCooldownUpdate,
+  applyPresenceUpdate,
+  applyQueueUpdate,
+  applySeatUpdate,
+  applySpeakerUpdate,
+  classifyRoomEvent,
+} from "./realtime-room-state";
 
 export type RoomConnectionStatus =
   "idle" | "connecting" | "connected" | "reconnecting" | "error" | "closed";
+
+export type RoomAction =
+  "request-seat" | "cancel-seat" | "leave-seat" | "acquire-speaker" | "release-speaker";
 
 interface UseRoomRealtimeOptions {
   roomId: string;
@@ -19,6 +44,15 @@ interface UseRoomRealtimeOptions {
 interface UseRoomRealtimeResult {
   status: RoomConnectionStatus;
   error: string | null;
+  actionError: string | null;
+  pendingAction: RoomAction | null;
+  serverClockOffsetMilliseconds: number;
+  clearActionError: () => void;
+  requestSeat: () => Promise<CommandAck<SeatRequestResult> | null>;
+  cancelSeatRequest: () => Promise<CommandAck | null>;
+  leaveSeat: () => Promise<CommandAck | null>;
+  acquireSpeaker: () => Promise<CommandAck<SpeakerAcquireResult> | null>;
+  releaseSpeaker: (speechTurnId: string) => Promise<CommandAck | null>;
 }
 
 interface SocketError extends Error {
@@ -27,6 +61,12 @@ interface SocketError extends Error {
     message?: string;
   };
 }
+
+type CommandSender<T> = (
+  socket: AppSocket,
+  commandRequestId: string,
+  acknowledge: (ack: CommandAck<T>) => void,
+) => void;
 
 function requestId(): string {
   return crypto.randomUUID();
@@ -41,9 +81,16 @@ export function useRoomRealtime({
 }: UseRoomRealtimeOptions): UseRoomRealtimeResult {
   const [status, setStatus] = useState<RoomConnectionStatus>("idle");
   const [error, setError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [pendingAction, setPendingAction] = useState<RoomAction | null>(null);
+  const [serverClockOffsetMilliseconds, setServerClockOffsetMilliseconds] = useState(0);
   const snapshotRef = useRef(snapshot);
   const onSnapshotRef = useRef(onSnapshot);
   const onRoomClosedRef = useRef(onRoomClosed);
+  const socketRef = useRef<AppSocket | null>(null);
+  const joinedRef = useRef(false);
+  const pendingActionRef = useRef<RoomAction | null>(null);
+  const requestResyncRef = useRef<() => void>(() => undefined);
 
   useEffect(() => {
     snapshotRef.current = snapshot;
@@ -53,16 +100,26 @@ export function useRoomRealtime({
 
   useEffect(() => {
     if (!enabled) {
+      socketRef.current = null;
+      joinedRef.current = false;
       setStatus("idle");
       setError(null);
       return;
     }
 
     const socket = createAppSocket();
+    socketRef.current = socket;
     let disposed = false;
     let joined = false;
     let joinTimeout: number | null = null;
     let resyncInFlight = false;
+
+    function calibrateClock(serverTime: string) {
+      const parsed = Date.parse(serverTime);
+      if (Number.isFinite(parsed)) {
+        setServerClockOffsetMilliseconds(parsed - Date.now());
+      }
+    }
 
     function applySnapshot(nextSnapshot: RoomSnapshot) {
       if (disposed) return;
@@ -79,7 +136,7 @@ export function useRoomRealtime({
       onRoomClosedRef.current();
     }
 
-    function handleCommandFailure(ack: Extract<CommandAck<RoomSnapshot>, { ok: false }>) {
+    function handleConnectionCommandFailure(ack: CommandAckFailure) {
       if (ack.error.code === "ROOM_NOT_FOUND" || ack.error.code === "ROOM_CLOSED") {
         closeRoom();
         return;
@@ -95,18 +152,21 @@ export function useRoomRealtime({
       socket.emit("room:resync", { requestId: requestId(), roomId, lastKnownVersion }, (ack) => {
         resyncInFlight = false;
         if (disposed) return;
+        calibrateClock(ack.serverTime);
         if (ack.ok) {
           applySnapshot(ack.data);
           setStatus("connected");
           setError(null);
         } else {
-          handleCommandFailure(ack);
+          handleConnectionCommandFailure(ack);
         }
       });
     }
+    requestResyncRef.current = requestResync;
 
     function joinRoom() {
       joined = false;
+      joinedRef.current = false;
       setStatus("connecting");
       setError(null);
       if (joinTimeout !== null) window.clearTimeout(joinTimeout);
@@ -129,20 +189,26 @@ export function useRoomRealtime({
             joinTimeout = null;
           }
           if (disposed) return;
+          calibrateClock(ack.serverTime);
           if (ack.ok) {
             joined = true;
+            joinedRef.current = true;
             applySnapshot(ack.data);
             setStatus("connected");
             setError(null);
           } else {
-            handleCommandFailure(ack);
+            handleConnectionCommandFailure(ack);
           }
         },
       );
     }
 
-    function handlePresence(event: RoomEvent<PresenceUpdatedData>) {
+    function applyVersionedEvent<T>(
+      event: RoomEvent<T>,
+      reducer: (current: RoomSnapshot, eventVersion: number, data: T) => RoomSnapshot,
+    ) {
       if (event.roomId !== roomId) return;
+      calibrateClock(event.serverTime);
       const currentSnapshot = snapshotRef.current;
       const disposition = classifyRoomEvent(currentSnapshot, event.roomVersion);
       if (disposition === "stale") return;
@@ -150,8 +216,52 @@ export function useRoomRealtime({
         requestResync();
         return;
       }
-      applySnapshot(
-        applyPresenceUpdate(currentSnapshot, event.roomVersion, event.data.onlineCount),
+      applySnapshot(reducer(currentSnapshot, event.roomVersion, event.data));
+    }
+
+    function handlePresence(event: RoomEvent<PresenceUpdatedData>) {
+      applyVersionedEvent(event, (current, eventVersion, data) =>
+        applyPresenceUpdate(current, eventVersion, data.onlineCount),
+      );
+    }
+
+    function handleSeatUpdated(event: RoomEvent<SeatUpdatedData>) {
+      applyVersionedEvent(event, applySeatUpdate);
+    }
+
+    function handleQueueUpdated(event: RoomEvent<QueueUpdatedData>) {
+      applyVersionedEvent(event, applyQueueUpdate);
+    }
+
+    function handleSpeakerChanged(event: RoomEvent<SpeakerChangedData>) {
+      applyVersionedEvent(event, applySpeakerUpdate);
+    }
+
+    function handleSpeakerTick(event: RoomEvent<SpeakerTickData>) {
+      if (event.roomId !== roomId) return;
+      calibrateClock(event.serverTime);
+      const currentSnapshot = snapshotRef.current;
+      if (
+        !currentSnapshot?.speakerLock ||
+        currentSnapshot.speakerLock.speechTurnId !== event.data.speechTurnId
+      ) {
+        return;
+      }
+      if (currentSnapshot.speakerLock.expiresAt !== event.data.expiresAt) {
+        applySnapshot({
+          ...currentSnapshot,
+          speakerLock: { ...currentSnapshot.speakerLock, expiresAt: event.data.expiresAt },
+        });
+      }
+    }
+
+    function handleCooldownUpdated(event: RoomEvent<CooldownUpdatedData>) {
+      applyVersionedEvent(event, applyCooldownUpdate);
+    }
+
+    function handleSpeechClosed(event: RoomEvent<SpeechClosedData>) {
+      applyVersionedEvent(event, (current, eventVersion) =>
+        advanceRoomVersion(current, eventVersion),
       );
     }
 
@@ -171,6 +281,7 @@ export function useRoomRealtime({
     socket.on("disconnect", () => {
       if (disposed) return;
       joined = false;
+      joinedRef.current = false;
       setStatus("reconnecting");
       setError(null);
     });
@@ -178,9 +289,18 @@ export function useRoomRealtime({
       if (!disposed) setStatus("reconnecting");
     });
     socket.on("room:snapshot", (event) => {
-      if (event.roomId === roomId) applySnapshot(event.data);
+      if (event.roomId === roomId) {
+        calibrateClock(event.serverTime);
+        applySnapshot(event.data);
+      }
     });
     socket.on("presence:updated", handlePresence);
+    socket.on("seat:updated", handleSeatUpdated);
+    socket.on("queue:updated", handleQueueUpdated);
+    socket.on("speaker:changed", handleSpeakerChanged);
+    socket.on("speaker:tick", handleSpeakerTick);
+    socket.on("cooldown:updated", handleCooldownUpdated);
+    socket.on("speech:closed", handleSpeechClosed);
     socket.on("room:closed", handleRoomClosed);
     setStatus("connecting");
     setError(null);
@@ -188,6 +308,9 @@ export function useRoomRealtime({
 
     return () => {
       disposed = true;
+      joinedRef.current = false;
+      requestResyncRef.current = () => undefined;
+      if (socketRef.current === socket) socketRef.current = null;
       socket.io.reconnection(false);
       if (joinTimeout !== null) window.clearTimeout(joinTimeout);
       if (socket.connected && joined) {
@@ -202,5 +325,125 @@ export function useRoomRealtime({
     };
   }, [enabled, roomId]);
 
-  return { status, error };
+  const executeCommand = useCallback(function executeCommand<T>(
+    action: RoomAction,
+    sender: CommandSender<T>,
+  ): Promise<CommandAck<T> | null> {
+    const socket = socketRef.current;
+    if (!socket?.connected || !joinedRef.current) {
+      setActionError("实时连接尚未就绪，请稍后再试");
+      return Promise.resolve(null);
+    }
+    if (pendingActionRef.current !== null) {
+      return Promise.resolve(null);
+    }
+
+    pendingActionRef.current = action;
+    setPendingAction(action);
+    setActionError(null);
+
+    return new Promise((resolve) => {
+      let settled = false;
+      const timeout = window.setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        pendingActionRef.current = null;
+        setPendingAction(null);
+        setActionError("操作超时，请重试");
+        resolve(null);
+      }, 8000);
+
+      sender(socket, requestId(), (ack) => {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(timeout);
+        pendingActionRef.current = null;
+        setPendingAction(null);
+        if (!ack.ok) {
+          setActionError(ack.error.message);
+          if (ack.error.code === "ROOM_NOT_FOUND" || ack.error.code === "ROOM_CLOSED") {
+            onRoomClosedRef.current();
+          }
+        } else if (ack.roomVersion > (snapshotRef.current?.room.version ?? 0)) {
+          requestResyncRef.current();
+        }
+        resolve(ack);
+      });
+    });
+  }, []);
+
+  const requestSeat = useCallback(
+    () =>
+      executeCommand<SeatRequestResult>("request-seat", (socket, commandRequestId, acknowledge) => {
+        socket.emit("seat:request", { requestId: commandRequestId, roomId }, acknowledge);
+      }),
+    [executeCommand, roomId],
+  );
+
+  const cancelSeatRequest = useCallback(
+    () =>
+      executeCommand<Record<string, never>>(
+        "cancel-seat",
+        (socket, commandRequestId, acknowledge) => {
+          socket.emit("seat:cancel", { requestId: commandRequestId, roomId }, acknowledge);
+        },
+      ),
+    [executeCommand, roomId],
+  );
+
+  const leaveSeat = useCallback(
+    () =>
+      executeCommand<Record<string, never>>(
+        "leave-seat",
+        (socket, commandRequestId, acknowledge) => {
+          socket.emit("seat:leave", { requestId: commandRequestId, roomId }, acknowledge);
+        },
+      ),
+    [executeCommand, roomId],
+  );
+
+  const acquireSpeaker = useCallback(
+    () =>
+      executeCommand<SpeakerAcquireResult>(
+        "acquire-speaker",
+        (socket, commandRequestId, acknowledge) => {
+          socket.emit("speaker:acquire", { requestId: commandRequestId, roomId }, acknowledge);
+        },
+      ),
+    [executeCommand, roomId],
+  );
+
+  const releaseSpeaker = useCallback(
+    (speechTurnId: string) =>
+      executeCommand<Record<string, never>>(
+        "release-speaker",
+        (socket, commandRequestId, acknowledge) => {
+          socket.emit(
+            "speaker:release",
+            {
+              requestId: commandRequestId,
+              roomId,
+              speechTurnId,
+              reason: "user_finished",
+            },
+            acknowledge,
+          );
+        },
+      ),
+    [executeCommand, roomId],
+  );
+
+  return {
+    status,
+    error,
+    actionError,
+    pendingAction,
+    serverClockOffsetMilliseconds,
+    clearActionError: () => setActionError(null),
+    requestSeat,
+    cancelSeatRequest,
+    leaveSeat,
+    acquireSpeaker,
+    releaseSpeaker,
+  };
 }
