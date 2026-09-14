@@ -73,6 +73,7 @@ export interface RealtimeGatewayOptions {
   roomEventBus?: RoomEventBus;
   sessionSecret: string;
   disconnectGraceMilliseconds?: number;
+  roomEmptyReclaimMilliseconds?: number;
   speechLimitMilliseconds?: number;
   cooldownMilliseconds?: number;
   speakerTickMilliseconds?: number;
@@ -93,7 +94,6 @@ const roomCommandSchema = z
   .strict();
 const roomJoinSchema = roomCommandSchema.extend({
   lastKnownVersion: z.number().int().nonnegative().nullable(),
-  inviteCode: z.string().min(6).max(100).nullable(),
 });
 const roomResyncSchema = roomCommandSchema.extend({
   lastKnownVersion: z.number().int().nonnegative(),
@@ -238,6 +238,9 @@ export function registerRealtimeGateway(
     ...(options.disconnectGraceMilliseconds === undefined
       ? {}
       : { disconnectGraceMilliseconds: options.disconnectGraceMilliseconds }),
+    ...(options.roomEmptyReclaimMilliseconds === undefined
+      ? {}
+      : { roomEmptyReclaimMilliseconds: options.roomEmptyReclaimMilliseconds }),
     ...(options.speechLimitMilliseconds === undefined
       ? {}
       : { speechLimitMilliseconds: options.speechLimitMilliseconds }),
@@ -252,6 +255,9 @@ export function registerRealtimeGateway(
   function emitStateEvent(stateEvent: RealtimeStateEvent): void {
     const target = io.to(stateEvent.event.roomId);
     switch (stateEvent.name) {
+      case "room:closed":
+        target.emit("room:closed", stateEvent.event);
+        break;
       case "presence:updated":
         target.emit("presence:updated", stateEvent.event);
         break;
@@ -509,7 +515,6 @@ export function registerRealtimeGateway(
       const result = service.join(
         command.roomId,
         { sessionId: socket.data.session.sessionId, user: socket.data.session.user },
-        command.inviteCode ?? undefined,
       );
       if (result.ok) {
         await socket.join(command.roomId);

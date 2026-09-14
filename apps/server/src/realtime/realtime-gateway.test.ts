@@ -99,7 +99,7 @@ function joinRoom(socket: TestClient, roomId: string, requestId: string) {
   return new Promise<CommandAck<RoomSnapshot>>((resolve) => {
     socket.emit(
       "room:join",
-      { requestId, roomId, lastKnownVersion: null, inviteCode: null },
+      { requestId, roomId, lastKnownVersion: null },
       resolve,
     );
   });

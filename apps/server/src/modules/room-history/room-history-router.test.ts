@@ -19,13 +19,12 @@ const sender: PublicUser = {
   levelTitle: "蛰伏",
 };
 
-function createTestContext(visibility: "public" | "invite" = "public") {
+function createTestContext() {
   const roomStore = new MemoryRoomStore();
   const chatStore = new MemoryChatStore();
   const speechTurnStore = new MemorySpeechTurnStore();
   const snapshot = createRoomSnapshot("room-history");
-  snapshot.room.visibility = visibility;
-  roomStore.save(snapshot, visibility === "invite" ? { inviteCode: "invite-code" } : undefined);
+  roomStore.save(snapshot);
   const app = createApp({
     sessionStore: new MemorySessionStore(),
     accountStore: new MemoryAccountStore(),
@@ -107,24 +106,8 @@ describe("room history routes", () => {
     });
   });
 
-  it("enforces invite-room access and hides missing rooms", async () => {
-    const { app } = createTestContext("invite");
-
-    const missingInvite = await request(app).get("/api/v1/rooms/room-history/messages");
-    expect(missingInvite.status).toBe(403);
-    expect(missingInvite.body.error.code).toBe("INVITE_REQUIRED");
-
-    const invalidInvite = await request(app).get(
-      "/api/v1/rooms/room-history/messages?inviteCode=wrong-code",
-    );
-    expect(invalidInvite.status).toBe(403);
-    expect(invalidInvite.body.error.code).toBe("INVALID_INVITE_CODE");
-
-    const allowed = await request(app).get(
-      "/api/v1/rooms/room-history/messages?inviteCode=invite-code",
-    );
-    expect(allowed.status).toBe(200);
-
+  it("hides missing rooms", async () => {
+    const { app } = createTestContext();
     const missingRoom = await request(app).get("/api/v1/rooms/missing/messages");
     expect(missingRoom.status).toBe(404);
     expect(missingRoom.body.error.code).toBe("ROOM_NOT_FOUND");

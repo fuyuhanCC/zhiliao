@@ -73,12 +73,11 @@
 {
   "requestId": "req_1",
   "roomId": "room_123",
-  "lastKnownVersion": null,
-  "inviteCode": null
+  "lastKnownVersion": null
 }
 ```
 
-首次进入时 `lastKnownVersion` 为 `null`，重连时传客户端最后应用的版本号。`inviteCode` 仅用于邀请制房间。ACK `data` 为 `RoomSnapshot`。如果房间不存在、访问码无效或房间已回收，返回 `ROOM_NOT_FOUND`、`INVITE_REQUIRED`、`INVALID_INVITE_CODE` 或 `ROOM_CLOSED`。
+首次进入时 `lastKnownVersion` 为 `null`，重连时传客户端最后应用的版本号。ACK `data` 为 `RoomSnapshot`。如果房间不存在或已回收，返回 `ROOM_NOT_FOUND` 或 `ROOM_CLOSED`。
 
 ### 3.2 `room:leave`
 
@@ -610,6 +609,8 @@ ACK `data` 为最新 `RoomSnapshot`。
 正文通过 REST `GET /rooms/{roomId}/summary` 获取，避免在广播中重复传输长文本。
 
 ### 4.15 `room:closed`
+
+最后一名用户离开后，服务端启动默认 60 秒的回收宽限期；有人重新进入会取消回收。宽限期结束时房间仍为空，服务端广播本事件并移除房间。
 
 ```json
 {

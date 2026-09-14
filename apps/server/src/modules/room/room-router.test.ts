@@ -70,7 +70,6 @@ describe("room routes", () => {
   it("requires a Zhihu session to create a room", async () => {
     const { app } = createTestContext();
     const roomRequest = {
-      visibility: "public",
       topic: { source: "manual", title: "测试辩题" },
     };
 
@@ -98,7 +97,6 @@ describe("room routes", () => {
       .set("Cookie", zhihuCookie)
       .set("Idempotency-Key", "request-123")
       .send({
-        visibility: "public",
         topic: { source: "manual", title: "  是否应该拥抱 AI  " },
       });
 
@@ -119,9 +117,8 @@ describe("room routes", () => {
         seatedCount: 0,
         version: 1,
       },
-      inviteCode: null,
-      inviteUrl: null,
     });
+    expect(Object.keys(created.body)).toEqual(["room"]);
 
     const roomId = created.body.room.roomId as string;
     const detail = await request(app).get(`/api/v1/rooms/${roomId}`);
@@ -144,7 +141,6 @@ describe("room routes", () => {
         .set("Cookie", zhihuCookie)
         .set("Idempotency-Key", "same-request")
         .send({
-          visibility: "public",
           topic: { source: "manual", title: "同一个请求" },
         });
 
@@ -157,7 +153,7 @@ describe("room routes", () => {
     expect(rooms.body.items).toHaveLength(1);
   });
 
-  it("keeps invite rooms out of the lobby and checks their access code", async () => {
+  it("rejects the deferred invite-room creation fields", async () => {
     const { app, zhihuCookie } = createTestContext();
     const created = await request(app)
       .post("/api/v1/rooms")
@@ -168,64 +164,25 @@ describe("room routes", () => {
         topic: { source: "manual", title: "朋友间辩论" },
       });
 
-    expect(created.status).toBe(201);
-    expect(created.body.inviteCode).toEqual(expect.any(String));
-    expect(created.body.inviteUrl).toContain("inviteCode=");
-    const roomId = created.body.room.roomId as string;
-
-    const lobby = await request(app).get("/api/v1/rooms");
-    expect(lobby.body.items).toEqual([]);
-
-    const missingCode = await request(app).get(`/api/v1/rooms/${roomId}`);
-    expect(missingCode.status).toBe(403);
-    expect(missingCode.body.error.code).toBe("INVITE_REQUIRED");
-
-    const wrongCode = await request(app).get(`/api/v1/rooms/${roomId}?inviteCode=wrong-code`);
-    expect(wrongCode.status).toBe(403);
-    expect(wrongCode.body.error.code).toBe("INVALID_INVITE_CODE");
-
-    const detail = await request(app).get(
-      `/api/v1/rooms/${roomId}?inviteCode=${encodeURIComponent(created.body.inviteCode)}`,
-    );
-    expect(detail.status).toBe(200);
-    expect(detail.body.room.roomId).toBe(roomId);
+    expect(created.status).toBe(400);
+    expect(created.body.error.code).toBe("VALIDATION_ERROR");
   });
 
-  it("normalizes a Zhihu question topic and rejects non-Zhihu question URLs", async () => {
+  it("rejects the deferred Zhihu question-link topic input", async () => {
     const { app, zhihuCookie } = createTestContext();
-    const valid = await request(app)
+    const result = await request(app)
       .post("/api/v1/rooms")
       .set("Cookie", zhihuCookie)
       .set("Idempotency-Key", "zhihu-question")
       .send({
-        visibility: "public",
         topic: {
           source: "zhihu_question",
           questionUrl: "https://www.zhihu.com/question/123456789",
           title: "一个知乎问题",
         },
       });
-    expect(valid.status).toBe(201);
-    expect(valid.body.room.topic).toMatchObject({
-      source: "zhihu_question",
-      zhihuQuestionId: "123456789",
-      zhihuUrl: "https://www.zhihu.com/question/123456789",
-    });
-
-    const invalid = await request(app)
-      .post("/api/v1/rooms")
-      .set("Cookie", zhihuCookie)
-      .set("Idempotency-Key", "invalid-question")
-      .send({
-        visibility: "public",
-        topic: {
-          source: "zhihu_question",
-          questionUrl: "https://example.com/question/123456789",
-          title: "错误链接",
-        },
-      });
-    expect(invalid.status).toBe(400);
-    expect(invalid.body.error.code).toBe("VALIDATION_ERROR");
+    expect(result.status).toBe(400);
+    expect(result.body.error.code).toBe("VALIDATION_ERROR");
   });
 
   it("paginates the lobby with an opaque room cursor", async () => {
@@ -239,7 +196,7 @@ describe("room routes", () => {
         .post("/api/v1/rooms")
         .set("Cookie", zhihuCookie)
         .set("Idempotency-Key", idempotencyKey)
-        .send({ visibility: "public", topic: { source: "manual", title } })
+        .send({ topic: { source: "manual", title } })
         .expect(201);
     }
 

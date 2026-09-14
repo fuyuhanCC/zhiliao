@@ -1,33 +1,21 @@
-import { createHash, timingSafeEqual } from "node:crypto";
-
 import type {
   ListRoomsOptions,
   RoomListResult,
   RoomSnapshot,
   RoomStore,
-  SaveRoomOptions,
 } from "../room-store.js";
 
-interface StoredRoom {
-  snapshot: RoomSnapshot;
-  inviteCodeDigest: Buffer | null;
-}
-
-function digestInviteCode(inviteCode: string): Buffer {
-  return createHash("sha256").update(inviteCode).digest();
-}
-
 export class MemoryRoomStore implements RoomStore {
-  private readonly rooms = new Map<string, StoredRoom>();
+  private readonly rooms = new Map<string, RoomSnapshot>();
 
   get(roomId: string): RoomSnapshot | undefined {
-    const storedRoom = this.rooms.get(roomId);
-    return storedRoom ? structuredClone(storedRoom.snapshot) : undefined;
+    const snapshot = this.rooms.get(roomId);
+    return snapshot ? structuredClone(snapshot) : undefined;
   }
 
   list(options: ListRoomsOptions): RoomListResult {
     const rooms = [...this.rooms.values()]
-      .map(({ snapshot }) => snapshot.room)
+      .map((snapshot) => snapshot.room)
       .filter(
         (room) =>
           room.status === "active" &&
@@ -61,20 +49,16 @@ export class MemoryRoomStore implements RoomStore {
     };
   }
 
-  save(snapshot: RoomSnapshot, options: SaveRoomOptions = {}): void {
-    this.rooms.set(snapshot.room.roomId, {
-      snapshot: structuredClone(snapshot),
-      inviteCodeDigest: options.inviteCode ? digestInviteCode(options.inviteCode) : null,
-    });
+  save(snapshot: RoomSnapshot): void {
+    this.rooms.set(snapshot.room.roomId, structuredClone(snapshot));
   }
 
   update(snapshot: RoomSnapshot): boolean {
-    const storedRoom = this.rooms.get(snapshot.room.roomId);
-    if (!storedRoom) {
+    if (!this.rooms.has(snapshot.room.roomId)) {
       return false;
     }
 
-    storedRoom.snapshot = structuredClone(snapshot);
+    this.rooms.set(snapshot.room.roomId, structuredClone(snapshot));
     return true;
   }
 
@@ -82,25 +66,8 @@ export class MemoryRoomStore implements RoomStore {
     return this.rooms.delete(roomId);
   }
 
-  canAccess(roomId: string, inviteCode?: string): boolean {
-    const storedRoom = this.rooms.get(roomId);
-    if (!storedRoom) {
-      return false;
-    }
-
-    if (storedRoom.snapshot.room.visibility === "public") {
-      return true;
-    }
-
-    if (!storedRoom.inviteCodeDigest || !inviteCode) {
-      return false;
-    }
-
-    return timingSafeEqual(storedRoom.inviteCodeDigest, digestInviteCode(inviteCode));
-  }
-
   isSeated(roomId: string, userId: string): boolean {
-    const storedRoom = this.rooms.get(roomId);
-    return storedRoom?.snapshot.seats.some((seat) => seat.occupant?.userId === userId) ?? false;
+    const snapshot = this.rooms.get(roomId);
+    return snapshot?.seats.some((seat) => seat.occupant?.userId === userId) ?? false;
   }
 }

@@ -11,7 +11,6 @@ const roomParamsSchema = z.object({
 
 const materialQuerySchema = z
   .object({
-    inviteCode: z.string().min(6).max(100).optional(),
     limit: z.coerce.number().int().min(1).max(10).default(5),
   })
   .strict();
@@ -39,12 +38,6 @@ export function createRoomMaterialRouter(options: RoomMaterialRouterOptions): Ro
     const snapshot = options.roomStore.get(roomId);
     if (!snapshot || snapshot.room.status === "closed") {
       sendApiError(response, 404, "ROOM_NOT_FOUND", "房间不存在或已回收");
-      return;
-    }
-
-    if (!options.roomStore.canAccess(roomId, parsedQuery.data.inviteCode)) {
-      const errorCode = parsedQuery.data.inviteCode ? "INVALID_INVITE_CODE" : "INVITE_REQUIRED";
-      sendApiError(response, 403, errorCode, "无权进入该房间");
       return;
     }
 

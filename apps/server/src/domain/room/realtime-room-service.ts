@@ -11,6 +11,7 @@ import {
   type ReactionCreatedData,
   type RewardCreatedData,
   type RewardSendResult,
+  type RoomClosedData,
   type RoomEvent,
   type SeatRequestResult,
   type SeatUpdatedData,
@@ -32,6 +33,7 @@ type ChatMessage = components["schemas"]["ChatMessage"];
 type ReleaseReason = components["schemas"]["ReleaseReason"];
 
 interface RealtimeEventDataMap {
+  "room:closed": RoomClosedData;
   "presence:updated": PresenceUpdatedData;
   "seat:updated": SeatUpdatedData;
   "queue:updated": QueueUpdatedData;
@@ -87,6 +89,7 @@ export interface RealtimeRoomServiceOptions {
   cooldownMilliseconds?: number;
   speakerTickMilliseconds?: number;
   disconnectGraceMilliseconds?: number;
+  roomEmptyReclaimMilliseconds?: number;
 }
 
 const emptyData: Record<string, never> = {};
@@ -104,12 +107,14 @@ export class RealtimeRoomService {
   private readonly cooldownMilliseconds: number;
   private readonly speakerTickMilliseconds: number;
   private readonly disconnectGraceMilliseconds: number;
+  private readonly roomEmptyReclaimMilliseconds: number;
   private readonly participants = new Map<string, Map<string, RoomParticipant>>();
   private readonly queuedUsers = new Map<string, Map<string, PublicUser>>();
   private readonly likedSessions = new Map<string, Set<string>>();
   private readonly speakerTimers = new Map<string, SpeakerTimers>();
   private readonly cooldownTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly disconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private readonly roomReclaimTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
   constructor(private readonly options: RealtimeRoomServiceOptions) {
     this.now = options.now ?? (() => new Date());
@@ -119,12 +124,12 @@ export class RealtimeRoomService {
     this.cooldownMilliseconds = options.cooldownMilliseconds ?? ROOM_RULES.cooldownSeconds * 1000;
     this.speakerTickMilliseconds = options.speakerTickMilliseconds ?? 5000;
     this.disconnectGraceMilliseconds = options.disconnectGraceMilliseconds ?? 10_000;
+    this.roomEmptyReclaimMilliseconds = options.roomEmptyReclaimMilliseconds ?? 60_000;
   }
 
   join(
     roomId: string,
     participant: RoomParticipant,
-    inviteCode?: string,
   ): RealtimeCommandResult<RoomSnapshot> {
     const snapshot = this.options.roomStore.get(roomId);
     const availabilityError = this.getAvailabilityError(snapshot);
@@ -132,14 +137,7 @@ export class RealtimeRoomService {
       return this.failure(snapshot, availabilityError.code, availabilityError.message);
     }
 
-    if (!this.options.roomStore.canAccess(roomId, inviteCode)) {
-      return this.failure(
-        snapshot,
-        inviteCode ? "INVALID_INVITE_CODE" : "INVITE_REQUIRED",
-        "无权进入该房间",
-      );
-    }
-
+    this.cancelRoomReclaim(roomId);
     this.cancelPendingDisconnect(roomId, participant.sessionId);
     const roomParticipants = this.getParticipants(roomId);
     const isNewPresence = !roomParticipants.has(participant.sessionId);
@@ -203,6 +201,9 @@ export class RealtimeRoomService {
     this.publishChange(snapshot, "presence:updated", {
       onlineCount: snapshot.room.onlineCount,
     });
+    if (snapshot.room.onlineCount === 0) {
+      this.scheduleRoomReclaim(roomId);
+    }
     return this.success(snapshot, emptyData);
   }
 
@@ -578,9 +579,13 @@ export class RealtimeRoomService {
     for (const timer of this.disconnectTimers.values()) {
       clearTimeout(timer);
     }
+    for (const timer of this.roomReclaimTimers.values()) {
+      clearTimeout(timer);
+    }
     this.speakerTimers.clear();
     this.cooldownTimers.clear();
     this.disconnectTimers.clear();
+    this.roomReclaimTimers.clear();
   }
 
   private requireJoinedRoom(
@@ -626,6 +631,62 @@ export class RealtimeRoomService {
       this.queuedUsers.set(roomId, roomUsers);
     }
     return roomUsers;
+  }
+
+  private scheduleRoomReclaim(roomId: string): void {
+    if (this.roomReclaimTimers.has(roomId)) {
+      return;
+    }
+    const timer = setTimeout(() => {
+      this.roomReclaimTimers.delete(roomId);
+      if ((this.participants.get(roomId)?.size ?? 0) > 0) {
+        return;
+      }
+      const snapshot = this.options.roomStore.get(roomId);
+      if (!snapshot || snapshot.room.status !== "active") {
+        return;
+      }
+
+      snapshot.room.status = "closed";
+      this.publishChange(snapshot, "room:closed", { reason: "empty_timeout" });
+      this.clearRoomRuntimeState(roomId);
+      this.options.roomStore.remove(roomId);
+    }, this.roomEmptyReclaimMilliseconds);
+    unrefTimer(timer);
+    this.roomReclaimTimers.set(roomId, timer);
+  }
+
+  private cancelRoomReclaim(roomId: string): void {
+    const timer = this.roomReclaimTimers.get(roomId);
+    if (!timer) {
+      return;
+    }
+    clearTimeout(timer);
+    this.roomReclaimTimers.delete(roomId);
+  }
+
+  private clearRoomRuntimeState(roomId: string): void {
+    this.clearSpeakerTimers(roomId);
+    this.participants.delete(roomId);
+    this.queuedUsers.delete(roomId);
+    for (const key of [...this.cooldownTimers.keys()]) {
+      if (key.startsWith(`${roomId}:`)) {
+        const timer = this.cooldownTimers.get(key);
+        if (timer) {
+          clearTimeout(timer);
+        }
+        this.cooldownTimers.delete(key);
+      }
+    }
+    for (const key of [...this.disconnectTimers.keys()]) {
+      if (key.startsWith(`${roomId}:`)) {
+        const timer = this.disconnectTimers.get(key);
+        if (timer) {
+          clearTimeout(timer);
+        }
+        this.disconnectTimers.delete(key);
+      }
+    }
   }
 
   private isParticipant(roomId: string, sessionId: string): boolean {

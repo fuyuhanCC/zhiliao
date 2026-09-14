@@ -15,7 +15,7 @@
 ### HTTP REST
 
 - 游客会话和知乎 OAuth。
-- 热榜、知乎问题与房间查询。
+- 热榜与房间查询。
 - 创建房间、查询房间详情和获取 TRTC 凭证。
 - 获取 TRTC 临时凭证。
 - 获取房间主题的知乎背景资料、公屏历史、发言记录和 AI 总结。
@@ -88,7 +88,7 @@ HTTP 成功响应直接返回资源或结果，不额外套 `data`：
 | ---- | ------------------------------------------------------------------------------------------------- | ------------------ |
 | 400  | `VALIDATION_ERROR`                                                                                | 参数不合法         |
 | 401  | `AUTH_REQUIRED`、`SESSION_EXPIRED`                                                                | 缺少或失效会话     |
-| 403  | `FORBIDDEN`、`ZHIHU_LOGIN_REQUIRED`、`INVITE_REQUIRED`、`INVALID_INVITE_CODE`                     | 身份或邀请权限不足 |
+| 403  | `FORBIDDEN`、`ZHIHU_LOGIN_REQUIRED`                                                              | 身份权限不足       |
 | 404  | `ROOM_NOT_FOUND`、`SPEECH_TURN_NOT_FOUND`                                                         | 资源不存在         |
 | 409  | `ALREADY_SEATED`、`SPEAKER_LOCKED`、`COOLDOWN_ACTIVE`                                             | 当前状态冲突       |
 | 413  | `AUDIO_TOO_LARGE`                                                                                 | 音频超过上限       |
@@ -112,7 +112,7 @@ HTTP 成功响应直接返回资源或结果，不额外套 `data`：
 - 通用数据接口位于 `https://developer.zhihu.com/api/v1`，使用 `Authorization: Bearer <access_secret>` 和秒级 `X-Request-Timestamp`。
 - 直答接口地址为 `https://developer.zhihu.com/v1/chat/completions`，不与通用数据接口共用同一个路径前缀。
 - OAuth 授权入口和 Token 接口位于 `https://openapi.zhihu.com`；回调参数名是 `authorization_code`。
-- 知乎问题回答接口接收完整 `QuestionUrl`，返回回答链接与摘要，但不保证返回问题标题。因此通过问题创建房间时，前端必须允许用户补充或确认标题。
+- 当前版本不提供粘贴知乎问题链接创建房间；私人房只接受用户手动填写的标题。
 - 热榜接口当前单次最多返回 30 条；本服务可以缓存并转换字段，但不得伪造知乎热度值。
 - 知乎搜索接口单次最多返回 10 条；房间背景资料由服务端使用房间主题搜索并缓存，前端只使用返回的 `zhihuUrl` 跳转原文。
 - OAuth `app_key`、开放平台 `Access Secret` 和用户 `access_token` 只能保存在服务端。

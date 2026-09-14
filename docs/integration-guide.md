@@ -154,7 +154,6 @@ socket.emit(
     requestId: crypto.randomUUID(),
     roomId: "room_123",
     lastKnownVersion: null,
-    inviteCode: null,
   },
   (ack) => {
     if (ack.ok) {
@@ -169,6 +168,8 @@ socket.emit(
 `GET /api/v1/auth/session` 的 `account` 是当前用户的私有账户数据，包含知豆余额、经验、等级和下一等级门槛。房间快照及各实时事件中的 `PublicUser` 只包含可公开的 `level` 和 `levelTitle`，不得从这些数据推算或展示他人的余额。
 
 断线后发言锁立即释放，麦位和排队状态默认保留 10 秒供重连恢复。后端可通过 `REALTIME_DISCONNECT_GRACE_MS` 调整宽限时间；前端不要写死该时长，重连后始终发送 `room:join` 获取完整快照。
+
+房间最后一人真正离开后进入默认 60 秒空房回收宽限期，由 `ROOM_EMPTY_RECLAIM_MS` 配置。宽限期内重新进入会取消回收；超时后收到 `room:closed` 的客户端应返回大厅。私人房表示用户创建的公开自定义话题房，当前版本没有邀请码流程。
 
 服务端 `Socket.IO Server` 已绑定 `ClientToServerEvents` 和 `ServerToClientEvents`，错误的事件名、载荷或 ACK 会在编译阶段暴露。
 

@@ -26,6 +26,7 @@ const envSchema = z
     SESSION_SECRET: z.string().min(32).default(developmentSessionSecret),
     LOG_LEVEL: z.string().default("info"),
     REALTIME_DISCONNECT_GRACE_MS: z.coerce.number().int().min(0).max(60000).default(10000),
+    ROOM_EMPTY_RECLAIM_MS: z.coerce.number().int().min(1000).max(3600000).default(60000),
     ZHIHU_OAUTH_APP_ID: optionalNonEmptyString,
     ZHIHU_OAUTH_APP_KEY: optionalNonEmptyString,
     ZHIHU_REDIRECT_URI: optionalUrl,
@@ -129,6 +130,7 @@ export const env = {
   sessionSecret: parsedEnv.SESSION_SECRET,
   logLevel: parsedEnv.LOG_LEVEL,
   realtimeDisconnectGraceMilliseconds: parsedEnv.REALTIME_DISCONNECT_GRACE_MS,
+  roomEmptyReclaimMilliseconds: parsedEnv.ROOM_EMPTY_RECLAIM_MS,
   zhihuOAuth:
     parsedEnv.ZHIHU_OAUTH_APP_ID !== undefined &&
     parsedEnv.ZHIHU_OAUTH_APP_KEY !== undefined &&

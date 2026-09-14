@@ -20,38 +20,14 @@ const listRoomsQuerySchema = z
   })
   .strict();
 
-const getRoomQuerySchema = z
-  .object({
-    inviteCode: z.string().min(6).max(100).optional(),
-  })
-  .strict();
-
-const zhihuQuestionUrlSchema = z.url().refine((value) => {
-  const url = new URL(value);
-  return (
-    (url.hostname === "zhihu.com" || url.hostname.endsWith(".zhihu.com")) &&
-    /\/question\/\d+/.test(url.pathname)
-  );
-}, "必须是知乎问题链接");
-
 const createRoomBodySchema = z
   .object({
-    visibility: z.enum(["public", "invite"]),
-    topic: z.discriminatedUnion("source", [
-      z
-        .object({
-          source: z.literal("manual"),
-          title: z.string().trim().min(1).max(30),
-        })
-        .strict(),
-      z
-        .object({
-          source: z.literal("zhihu_question"),
-          questionUrl: zhihuQuestionUrlSchema,
-          title: z.string().trim().min(1).max(200),
-        })
-        .strict(),
-    ]),
+    topic: z
+      .object({
+        source: z.literal("manual"),
+        title: z.string().trim().min(1).max(30),
+      })
+      .strict(),
   })
   .strict();
 
@@ -71,7 +47,6 @@ export function createRoomRouter(options: RoomRouterOptions): Router {
     options.roomService ??
     new RoomService({
       roomStore: options.roomStore,
-      webOrigin: options.webOrigin,
     });
 
   router.get("/rooms", async (request, response) => {
@@ -135,11 +110,9 @@ export function createRoomRouter(options: RoomRouterOptions): Router {
 
   router.get("/rooms/:roomId", (request, response) => {
     const parsedParams = roomParamsSchema.safeParse(request.params);
-    const parsedQuery = getRoomQuerySchema.safeParse(request.query);
-    if (!parsedParams.success || !parsedQuery.success) {
+    if (!parsedParams.success) {
       sendApiError(response, 400, "VALIDATION_ERROR", "请求参数不合法", {
         params: parsedParams.success ? [] : parsedParams.error.issues,
-        query: parsedQuery.success ? [] : parsedQuery.error.issues,
       });
       return;
     }
@@ -147,12 +120,6 @@ export function createRoomRouter(options: RoomRouterOptions): Router {
     const room = options.roomStore.get(parsedParams.data.roomId);
     if (!room || room.room.status === "closed") {
       sendApiError(response, 404, "ROOM_NOT_FOUND", "房间不存在或已回收");
-      return;
-    }
-
-    if (!options.roomStore.canAccess(parsedParams.data.roomId, parsedQuery.data.inviteCode)) {
-      const errorCode = parsedQuery.data.inviteCode ? "INVALID_INVITE_CODE" : "INVITE_REQUIRED";
-      sendApiError(response, 403, errorCode, "无权进入该房间");
       return;
     }
 

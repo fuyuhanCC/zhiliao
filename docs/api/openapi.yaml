@@ -174,41 +174,6 @@ paths:
         "502":
           $ref: "#/components/responses/UpstreamFailure"
 
-  /topics/resolve:
-    post:
-      tags: [Topics]
-      operationId: resolveZhihuQuestion
-      summary: 解析知乎问题作为房间话题
-      description: |
-        根据知乎问题 URL 获取可用的回答摘要和页面元数据。知乎问题回答 API 不保证返回
-        问题标题，因此 title 可能为空，前端必须允许用户补充标题。
-      security: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              additionalProperties: false
-              required: [questionUrl]
-              properties:
-                questionUrl:
-                  type: string
-                  format: uri
-      responses:
-        "200":
-          description: 可用于创建房间的话题草稿
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ResolvedQuestionTopic"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "502":
-          $ref: "#/components/responses/UpstreamFailure"
-
   /rooms:
     get:
       tags: [Rooms]
@@ -236,7 +201,7 @@ paths:
       tags: [Rooms]
       operationId: createRoom
       summary: 创建自定义话题房间
-      description: 仅知乎登录用户可创建。热榜房由系统生成，不通过此接口创建。
+      description: 仅知乎登录用户可创建公开的自定义话题房。热榜房由系统生成，不通过此接口创建。
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -269,7 +234,6 @@ paths:
       security: []
       parameters:
         - $ref: "#/components/parameters/RoomId"
-        - $ref: "#/components/parameters/InviteCode"
       responses:
         "200":
           description: 房间详情
@@ -295,7 +259,6 @@ paths:
       security: []
       parameters:
         - $ref: "#/components/parameters/RoomId"
-        - $ref: "#/components/parameters/InviteCode"
         - name: limit
           in: query
           required: false
@@ -331,18 +294,6 @@ paths:
       parameters:
         - $ref: "#/components/parameters/RoomId"
         - $ref: "#/components/parameters/IdempotencyKey"
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              type: object
-              additionalProperties: false
-              properties:
-                inviteCode:
-                  type: string
-                  minLength: 6
-                  maxLength: 100
       responses:
         "200":
           description: TRTC 凭证
@@ -371,7 +322,6 @@ paths:
       security: []
       parameters:
         - $ref: "#/components/parameters/RoomId"
-        - $ref: "#/components/parameters/InviteCode"
         - $ref: "#/components/parameters/Cursor"
         - name: limit
           in: query
@@ -401,7 +351,6 @@ paths:
       security: []
       parameters:
         - $ref: "#/components/parameters/RoomId"
-        - $ref: "#/components/parameters/InviteCode"
         - $ref: "#/components/parameters/Cursor"
         - name: limit
           in: query
@@ -484,7 +433,6 @@ paths:
       security: []
       parameters:
         - $ref: "#/components/parameters/RoomId"
-        - $ref: "#/components/parameters/InviteCode"
       responses:
         "200":
           description: 总结状态与结果
@@ -508,18 +456,6 @@ paths:
       parameters:
         - $ref: "#/components/parameters/RoomId"
         - $ref: "#/components/parameters/IdempotencyKey"
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              type: object
-              additionalProperties: false
-              properties:
-                inviteCode:
-                  type: string
-                  minLength: 6
-                  maxLength: 100
       responses:
         "200":
           description: 当前版本已有可复用总结
@@ -581,15 +517,6 @@ components:
         minimum: 1
         maximum: 50
         default: 20
-    InviteCode:
-      name: inviteCode
-      in: query
-      required: false
-      description: 邀请制房间的访问码。
-      schema:
-        type: string
-        minLength: 6
-        maxLength: 100
     IdempotencyKey:
       name: Idempotency-Key
       in: header
@@ -774,44 +701,6 @@ components:
         summary:
           type: string
 
-    ResolvedQuestionTopic:
-      type: object
-      additionalProperties: false
-      required:
-        - source
-        - title
-        - questionUrl
-        - questionId
-        - excerpt
-        - imageUrl
-        - answerExcerpts
-        - requiresTitleInput
-      properties:
-        source:
-          type: string
-          const: zhihu_question
-        title:
-          type: [string, "null"]
-          maxLength: 200
-        questionUrl:
-          type: string
-          format: uri
-        questionId:
-          type: [string, "null"]
-        excerpt:
-          type: [string, "null"]
-          maxLength: 2000
-        imageUrl:
-          type: [string, "null"]
-          format: uri
-        answerExcerpts:
-          type: array
-          maxItems: 10
-          items:
-            $ref: "#/components/schemas/AnswerExcerpt"
-        requiresTitleInput:
-          type: boolean
-
     HotTopicPage:
       type: object
       additionalProperties: false
@@ -901,7 +790,7 @@ components:
 
     RoomVisibility:
       type: string
-      enum: [public, invite]
+      enum: [public]
 
     RoomStatus:
       type: string
@@ -1062,46 +951,21 @@ components:
           minLength: 1
           maxLength: 30
 
-    ZhihuQuestionTopicInput:
-      type: object
-      additionalProperties: false
-      required: [source, questionUrl, title]
-      properties:
-        source:
-          type: string
-          const: zhihu_question
-        questionUrl:
-          type: string
-          format: uri
-        title:
-          type: string
-          minLength: 1
-          maxLength: 200
-
     CreateRoomRequest:
       type: object
       additionalProperties: false
-      required: [visibility, topic]
+      required: [topic]
       properties:
-        visibility:
-          $ref: "#/components/schemas/RoomVisibility"
         topic:
-          oneOf:
-            - $ref: "#/components/schemas/ManualTopicInput"
-            - $ref: "#/components/schemas/ZhihuQuestionTopicInput"
+          $ref: "#/components/schemas/ManualTopicInput"
 
     CreateRoomResponse:
       type: object
       additionalProperties: false
-      required: [room, inviteCode, inviteUrl]
+      required: [room]
       properties:
         room:
           $ref: "#/components/schemas/Room"
-        inviteCode:
-          type: [string, "null"]
-        inviteUrl:
-          type: [string, "null"]
-          format: uri
 
     RtcRole:
       type: string

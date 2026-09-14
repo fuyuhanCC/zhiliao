@@ -11,15 +11,11 @@ import { createRoomSnapshot } from "../../test/room-fixture.js";
 import { RoomMaterialService } from "./room-material-service.js";
 import type { ZhihuSearchClient } from "./zhihu-search-client.js";
 
-function createTestApp(options: { configured?: boolean; visibility?: "public" | "invite" } = {}) {
+function createTestApp(options: { configured?: boolean } = {}) {
   const roomStore = new MemoryRoomStore();
   const snapshot = createRoomSnapshot("room-materials");
   snapshot.room.topic.title = "测试主题";
-  snapshot.room.visibility = options.visibility ?? "public";
-  roomStore.save(
-    snapshot,
-    options.visibility === "invite" ? { inviteCode: "invite-code" } : undefined,
-  );
+  roomStore.save(snapshot);
   const client: ZhihuSearchClient = {
     search: vi.fn(async () => ({
       items: [
@@ -76,17 +72,12 @@ describe("room material route", () => {
     });
   });
 
-  it("enforces invite access before calling Zhihu", async () => {
-    const app = createTestApp({ visibility: "invite" });
-
-    const denied = await request(app).get("/api/v1/rooms/room-materials/materials");
-    expect(denied.status).toBe(403);
-    expect(denied.body.error.code).toBe("INVITE_REQUIRED");
-
-    const allowed = await request(app).get(
+  it("rejects the removed invite-code query field", async () => {
+    const response = await request(createTestApp()).get(
       "/api/v1/rooms/room-materials/materials?inviteCode=invite-code",
     );
-    expect(allowed.status).toBe(200);
+    expect(response.status).toBe(400);
+    expect(response.body.error.code).toBe("VALIDATION_ERROR");
   });
 
   it("reports missing configuration without exposing credentials", async () => {

@@ -18,44 +18,20 @@ export interface CreateRoomInput {
 
 export interface RoomServiceOptions {
   roomStore: RoomStore;
-  webOrigin: string;
   now?: () => Date;
   generateRoomId?: () => string;
-  generateInviteCode?: () => string;
 }
 
 function defaultRoomId(): string {
   return `room_${randomBytes(12).toString("base64url")}`;
 }
 
-function defaultInviteCode(): string {
-  return randomBytes(9).toString("base64url");
-}
-
-function extractZhihuQuestionId(questionUrl: string): string | null {
-  const match = new URL(questionUrl).pathname.match(/\/question\/(\d+)/);
-  return match?.[1] ?? null;
-}
-
 function toTopic(input: CreateRoomRequest["topic"]): Topic {
-  if (input.source === "manual") {
-    return {
-      source: "manual",
-      title: input.title,
-      zhihuQuestionId: null,
-      zhihuUrl: null,
-      excerpt: null,
-      imageUrl: null,
-      answerExcerpts: [],
-      hotRank: null,
-    };
-  }
-
   return {
-    source: "zhihu_question",
+    source: "manual",
     title: input.title,
-    zhihuQuestionId: extractZhihuQuestionId(input.questionUrl),
-    zhihuUrl: input.questionUrl,
+    zhihuQuestionId: null,
+    zhihuUrl: null,
     excerpt: null,
     imageUrl: null,
     answerExcerpts: [],
@@ -66,13 +42,11 @@ function toTopic(input: CreateRoomRequest["topic"]): Topic {
 export class RoomService {
   private readonly now: () => Date;
   private readonly generateRoomId: () => string;
-  private readonly generateInviteCode: () => string;
   private readonly createdByIdempotencyKey = new Map<string, CreateRoomResponse>();
 
   constructor(private readonly options: RoomServiceOptions) {
     this.now = options.now ?? (() => new Date());
     this.generateRoomId = options.generateRoomId ?? defaultRoomId;
-    this.generateInviteCode = options.generateInviteCode ?? defaultInviteCode;
   }
 
   create(input: CreateRoomInput): CreateRoomResponse {
@@ -83,12 +57,11 @@ export class RoomService {
     }
 
     const roomId = this.generateRoomId();
-    const inviteCode = input.request.visibility === "invite" ? this.generateInviteCode() : null;
     const room: CreateRoomResponse["room"] = {
       roomId,
       type: "custom",
       status: "active",
-      visibility: input.request.visibility,
+      visibility: "public",
       topic: toTopic(input.request.topic),
       creator: structuredClone(input.user),
       onlineCount: 0,
@@ -107,20 +80,11 @@ export class RoomService {
       cooldowns: [],
     };
 
-    this.options.roomStore.save(snapshot, inviteCode ? { inviteCode } : undefined);
+    this.options.roomStore.save(snapshot);
 
-    const response: CreateRoomResponse = {
-      room,
-      inviteCode,
-      inviteUrl: inviteCode ? this.createInviteUrl(roomId, inviteCode) : null,
-    };
+    const response: CreateRoomResponse = { room };
     this.createdByIdempotencyKey.set(cacheKey, structuredClone(response));
     return structuredClone(response);
   }
 
-  private createInviteUrl(roomId: string, inviteCode: string): string {
-    const inviteUrl = new URL(`/rooms/${encodeURIComponent(roomId)}`, this.options.webOrigin);
-    inviteUrl.searchParams.set("inviteCode", inviteCode);
-    return inviteUrl.toString();
-  }
 }

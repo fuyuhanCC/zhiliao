@@ -136,27 +136,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/topics/resolve": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * 解析知乎问题作为房间话题
-         * @description 根据知乎问题 URL 获取可用的回答摘要和页面元数据。知乎问题回答 API 不保证返回
-         *     问题标题，因此 title 可能为空，前端必须允许用户补充标题。
-         */
-        post: operations["resolveZhihuQuestion"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/rooms": {
         parameters: {
             query?: never;
@@ -169,7 +148,7 @@ export interface paths {
         put?: never;
         /**
          * 创建自定义话题房间
-         * @description 仅知乎登录用户可创建。热榜房由系统生成，不通过此接口创建。
+         * @description 仅知乎登录用户可创建公开的自定义话题房。热榜房由系统生成，不通过此接口创建。
          */
         post: operations["createRoom"];
         delete?: never;
@@ -393,19 +372,6 @@ export interface components {
             url: string;
             summary: string;
         };
-        ResolvedQuestionTopic: {
-            /** @constant */
-            source: "zhihu_question";
-            title: string | null;
-            /** Format: uri */
-            questionUrl: string;
-            questionId: string | null;
-            excerpt: string | null;
-            /** Format: uri */
-            imageUrl: string | null;
-            answerExcerpts: components["schemas"]["AnswerExcerpt"][];
-            requiresTitleInput: boolean;
-        };
         HotTopicPage: {
             items: components["schemas"]["Topic"][];
             nextCursor: string | null;
@@ -442,7 +408,7 @@ export interface components {
         /** @enum {string} */
         RoomType: "hot" | "custom";
         /** @enum {string} */
-        RoomVisibility: "public" | "invite";
+        RoomVisibility: "public";
         /** @enum {string} */
         RoomStatus: "active" | "closing" | "closed";
         Room: {
@@ -499,22 +465,11 @@ export interface components {
             source: "manual";
             title: string;
         };
-        ZhihuQuestionTopicInput: {
-            /** @constant */
-            source: "zhihu_question";
-            /** Format: uri */
-            questionUrl: string;
-            title: string;
-        };
         CreateRoomRequest: {
-            visibility: components["schemas"]["RoomVisibility"];
-            topic: components["schemas"]["ManualTopicInput"] | components["schemas"]["ZhihuQuestionTopicInput"];
+            topic: components["schemas"]["ManualTopicInput"];
         };
         CreateRoomResponse: {
             room: components["schemas"]["Room"];
-            inviteCode: string | null;
-            /** Format: uri */
-            inviteUrl: string | null;
         };
         /** @enum {string} */
         RtcRole: "audience" | "speaker";
@@ -684,8 +639,6 @@ export interface components {
         SpeechTurnId: string;
         Cursor: string;
         PageLimit: number;
-        /** @description 邀请制房间的访问码。 */
-        InviteCode: string;
         IdempotencyKey: string;
     };
     requestBodies: never;
@@ -863,36 +816,6 @@ export interface operations {
             502: components["responses"]["UpstreamFailure"];
         };
     };
-    resolveZhihuQuestion: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": {
-                    /** Format: uri */
-                    questionUrl: string;
-                };
-            };
-        };
-        responses: {
-            /** @description 可用于创建房间的话题草稿 */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ResolvedQuestionTopic"];
-                };
-            };
-            400: components["responses"]["BadRequest"];
-            404: components["responses"]["NotFound"];
-            502: components["responses"]["UpstreamFailure"];
-        };
-    };
     listRooms: {
         parameters: {
             query?: {
@@ -950,10 +873,7 @@ export interface operations {
     };
     getRoom: {
         parameters: {
-            query?: {
-                /** @description 邀请制房间的访问码。 */
-                inviteCode?: components["parameters"]["InviteCode"];
-            };
+            query?: never;
             header?: never;
             path: {
                 roomId: components["parameters"]["RoomId"];
@@ -979,8 +899,6 @@ export interface operations {
     listRoomMaterials: {
         parameters: {
             query?: {
-                /** @description 邀请制房间的访问码。 */
-                inviteCode?: components["parameters"]["InviteCode"];
                 limit?: number;
             };
             header?: never;
@@ -1017,13 +935,7 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: {
-            content: {
-                "application/json": {
-                    inviteCode?: string;
-                };
-            };
-        };
+        requestBody?: never;
         responses: {
             /** @description TRTC 凭证 */
             200: {
@@ -1045,8 +957,6 @@ export interface operations {
     listRoomMessages: {
         parameters: {
             query?: {
-                /** @description 邀请制房间的访问码。 */
-                inviteCode?: components["parameters"]["InviteCode"];
                 cursor?: components["parameters"]["Cursor"];
                 limit?: number;
             };
@@ -1074,8 +984,6 @@ export interface operations {
     listSpeechTurns: {
         parameters: {
             query?: {
-                /** @description 邀请制房间的访问码。 */
-                inviteCode?: components["parameters"]["InviteCode"];
                 cursor?: components["parameters"]["Cursor"];
                 limit?: number;
             };
@@ -1149,10 +1057,7 @@ export interface operations {
     };
     getRoomSummary: {
         parameters: {
-            query?: {
-                /** @description 邀请制房间的访问码。 */
-                inviteCode?: components["parameters"]["InviteCode"];
-            };
+            query?: never;
             header?: never;
             path: {
                 roomId: components["parameters"]["RoomId"];
@@ -1185,13 +1090,7 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: {
-            content: {
-                "application/json": {
-                    inviteCode?: string;
-                };
-            };
-        };
+        requestBody?: never;
         responses: {
             /** @description 当前版本已有可复用总结 */
             200: {

@@ -31,6 +31,7 @@ const realtimeGateway = registerRealtimeGateway(io, {
   ...(dependencies.roomEventBus ? { roomEventBus: dependencies.roomEventBus } : {}),
   sessionSecret: dependencies.sessionSecret,
   disconnectGraceMilliseconds: env.realtimeDisconnectGraceMilliseconds,
+  roomEmptyReclaimMilliseconds: env.roomEmptyReclaimMilliseconds,
 });
 
 httpServer.listen(env.port, "0.0.0.0", () => {

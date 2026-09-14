@@ -96,7 +96,7 @@ describe("Zhihu OAuth routes", () => {
   it("upgrades the same session and redirects only to an internal return path", async () => {
     const { accountStore, app, client } = createTestContext();
     const agent = request.agent(app);
-    const { state } = await beginAuthorization(agent, "/rooms/room_123?inviteCode=abc123");
+    const { state } = await beginAuthorization(agent, "/rooms/room_123?from=lobby");
     const guestSession = await agent.get("/api/v1/auth/session").expect(200);
     accountStore.awardLikeExperience(guestSession.body.user.userId);
 
@@ -106,7 +106,7 @@ describe("Zhihu OAuth routes", () => {
       .expect(302);
 
     expect(callback.headers.location).toBe(
-      "http://localhost:5173/rooms/room_123?inviteCode=abc123",
+      "http://localhost:5173/rooms/room_123?from=lobby",
     );
     expect(client.exchangeAuthorizationCode).toHaveBeenCalledWith("authorization-code");
 

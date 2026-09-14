@@ -7,7 +7,7 @@ import type { SessionStore } from "../../stores/session-store.js";
 import { readSession } from "../auth/session.js";
 import { SummaryRequestError, type SummaryService } from "./summary-service.js";
 
-const generateBodySchema = z.object({ inviteCode: z.string().min(6).max(100).optional() }).strict();
+const generateBodySchema = z.object({}).strict();
 const idempotencyKeySchema = z.string().min(1).max(200);
 
 export interface SummaryRouterOptions {
@@ -16,26 +16,13 @@ export interface SummaryRouterOptions {
   service: SummaryService;
 }
 
-function readOptionalString(value: unknown): string | undefined {
-  return typeof value === "string" && value.length > 0 ? value : undefined;
-}
-
 function checkRoomAccess(
   roomStore: RoomStore,
   roomId: string,
-  inviteCode: string | undefined,
 ): { ok: true } | { ok: false; status: number; code: string; message: string } {
   const snapshot = roomStore.get(roomId);
   if (!snapshot || snapshot.room.status === "closed") {
     return { ok: false, status: 404, code: "ROOM_NOT_FOUND", message: "房间不存在或已回收" };
-  }
-  if (!roomStore.canAccess(roomId, inviteCode)) {
-    return {
-      ok: false,
-      status: 403,
-      code: inviteCode ? "INVALID_INVITE_CODE" : "INVITE_REQUIRED",
-      message: "无权进入该房间",
-    };
   }
   return { ok: true };
 }
@@ -45,8 +32,7 @@ export function createSummaryRouter(options: SummaryRouterOptions): Router {
 
   router.get("/rooms/:roomId/summary", (request, response) => {
     const roomId = request.params.roomId;
-    const inviteCode = readOptionalString(request.query.inviteCode);
-    const access = checkRoomAccess(options.roomStore, roomId, inviteCode);
+    const access = checkRoomAccess(options.roomStore, roomId);
     if (!access.ok) {
       sendApiError(response, access.status, access.code, access.message);
       return;
@@ -67,7 +53,7 @@ export function createSummaryRouter(options: SummaryRouterOptions): Router {
       return;
     }
     const roomId = request.params.roomId;
-    const access = checkRoomAccess(options.roomStore, roomId, body.data.inviteCode);
+    const access = checkRoomAccess(options.roomStore, roomId);
     if (!access.ok) {
       sendApiError(response, access.status, access.code, access.message);
       return;

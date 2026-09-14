@@ -15,16 +15,11 @@ export interface RoomListResult {
   nextCursor: string | null;
 }
 
-export interface SaveRoomOptions {
-  inviteCode?: string;
-}
-
 export interface RoomStore {
   get(roomId: string): RoomSnapshot | undefined;
   list(options: ListRoomsOptions): RoomListResult;
-  save(snapshot: RoomSnapshot, options?: SaveRoomOptions): void;
+  save(snapshot: RoomSnapshot): void;
   update(snapshot: RoomSnapshot): boolean;
   remove(roomId: string): boolean;
-  canAccess(roomId: string, inviteCode?: string): boolean;
   isSeated(roomId: string, userId: string): boolean;
 }

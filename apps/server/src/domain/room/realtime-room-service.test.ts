@@ -289,4 +289,35 @@ describe("RealtimeRoomService", () => {
     expect(roomStore.get(roomId)?.seats[0]?.occupant?.userId).toBe(speaker.user.userId);
     expect(roomStore.get(roomId)?.room.onlineCount).toBe(1);
   });
+
+  it("reclaims an empty room after the grace period and cancels reclaim on rejoin", async () => {
+    service.dispose();
+    service = new RealtimeRoomService({
+      roomStore,
+      accountStore,
+      chatStore,
+      speechTurnStore,
+      emit: (event) => events.push(event),
+      emitAccountUpdate: vi.fn(),
+      roomEmptyReclaimMilliseconds: 1000,
+    });
+    const guest = participant(1, "guest");
+
+    expect(service.join(roomId, guest).ok).toBe(true);
+    expect(service.leave(roomId, guest.sessionId).ok).toBe(true);
+    await vi.advanceTimersByTimeAsync(999);
+    expect(roomStore.get(roomId)).toBeDefined();
+
+    expect(service.join(roomId, guest).ok).toBe(true);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(roomStore.get(roomId)).toBeDefined();
+
+    expect(service.leave(roomId, guest.sessionId).ok).toBe(true);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(roomStore.get(roomId)).toBeUndefined();
+    expect(events.at(-1)).toMatchObject({
+      name: "room:closed",
+      event: { roomId, data: { reason: "empty_timeout" } },
+    });
+  });
 });

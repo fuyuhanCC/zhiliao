@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if command -v pnpm >/dev/null 2>&1 && command -v node >/dev/null 2>&1; then
+  exec pnpm "$@"
+fi
+
+task_runtime="${CODEX_PRIMARY_RUNTIME:-${HOME}/.cache/codex-runtimes/codex-primary-runtime/dependencies}"
+task_pnpm="${task_runtime}/bin/fallback/pnpm"
+task_node_bin="${task_runtime}/node/bin"
+
+if [[ ! -x "${task_pnpm}" || ! -x "${task_node_bin}/node" ]]; then
+  echo "ZhiLiao could not find pnpm or the bundled Codex Node.js runtime." >&2
+  echo "Install Node.js 20+ and pnpm, or set CODEX_PRIMARY_RUNTIME to the dependencies directory." >&2
+  exit 127
+fi
+
+export PATH="${task_node_bin}:${task_runtime}/bin/fallback:/usr/bin:/bin"
+exec "${task_pnpm}" "$@"

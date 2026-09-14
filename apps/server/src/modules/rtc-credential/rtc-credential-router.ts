@@ -11,11 +11,7 @@ const paramsSchema = z.object({
   roomId: z.string().min(1),
 });
 
-const bodySchema = z
-  .object({
-    inviteCode: z.string().min(6).max(100).optional(),
-  })
-  .strict();
+const bodySchema = z.object({}).strict();
 
 const idempotencyKeySchema = z.string().min(8).max(100);
 
@@ -51,12 +47,6 @@ export function createRtcCredentialRouter(options: RtcCredentialRouterOptions): 
     const room = options.roomStore.get(parsedParams.data.roomId);
     if (!room || room.room.status === "closed") {
       sendApiError(response, 404, "ROOM_NOT_FOUND", "房间不存在或已回收");
-      return;
-    }
-
-    if (!options.roomStore.canAccess(parsedParams.data.roomId, parsedBody.data.inviteCode)) {
-      const errorCode = parsedBody.data.inviteCode ? "INVALID_INVITE_CODE" : "INVITE_REQUIRED";
-      sendApiError(response, 403, errorCode, "无权进入该房间");
       return;
     }
 

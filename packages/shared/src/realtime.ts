@@ -79,7 +79,6 @@ export interface RoomCommand {
 
 export interface RoomJoinCommand extends RoomCommand {
   lastKnownVersion: number | null;
-  inviteCode: string | null;
 }
 
 export interface RoomResyncCommand extends RoomCommand {

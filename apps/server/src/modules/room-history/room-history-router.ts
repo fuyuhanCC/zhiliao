@@ -25,7 +25,6 @@ function readLimit(value: unknown, defaultValue: number, maximum: number): numbe
 function canReadRoom(
   options: RoomHistoryRouterOptions,
   roomId: string,
-  inviteCode: string | undefined,
 ): { ok: true } | { ok: false; status: number; code: string; message: string } {
   const snapshot = options.roomStore.get(roomId);
   if (!snapshot || snapshot.room.status === "closed") {
@@ -36,14 +35,6 @@ function canReadRoom(
       message: "房间不存在或已回收",
     };
   }
-  if (!options.roomStore.canAccess(roomId, inviteCode)) {
-    return {
-      ok: false,
-      status: 403,
-      code: inviteCode ? "INVALID_INVITE_CODE" : "INVITE_REQUIRED",
-      message: "无权进入该房间",
-    };
-  }
   return { ok: true };
 }
 
@@ -52,8 +43,7 @@ export function createRoomHistoryRouter(options: RoomHistoryRouterOptions): Rout
 
   router.get("/rooms/:roomId/messages", (request, response) => {
     const roomId = request.params.roomId;
-    const inviteCode = readOptionalQueryValue(request.query.inviteCode);
-    const access = canReadRoom(options, roomId, inviteCode);
+    const access = canReadRoom(options, roomId);
     if (!access.ok) {
       sendApiError(response, access.status, access.code, access.message);
       return;
@@ -70,8 +60,7 @@ export function createRoomHistoryRouter(options: RoomHistoryRouterOptions): Rout
 
   router.get("/rooms/:roomId/speech-turns", (request, response) => {
     const roomId = request.params.roomId;
-    const inviteCode = readOptionalQueryValue(request.query.inviteCode);
-    const access = canReadRoom(options, roomId, inviteCode);
+    const access = canReadRoom(options, roomId);
     if (!access.ok) {
       sendApiError(response, access.status, access.code, access.message);
       return;

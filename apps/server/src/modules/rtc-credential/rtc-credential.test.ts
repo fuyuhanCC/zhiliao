@@ -30,18 +30,12 @@ function createCredentialService() {
   };
 }
 
-function createTestApp(
-  roomOptions: { visibility?: "public" | "invite"; inviteCode?: string } = {},
-) {
+function createTestApp() {
   const sessionStore = new MemorySessionStore();
   const roomStore = new MemoryRoomStore();
   const { service } = createCredentialService();
   const roomSnapshot = createRoomSnapshot();
-  roomSnapshot.room.visibility = roomOptions.visibility ?? "public";
-  roomStore.save(
-    roomSnapshot,
-    roomOptions.inviteCode ? { inviteCode: roomOptions.inviteCode } : undefined,
-  );
+  roomStore.save(roomSnapshot);
 
   return createApp({
     sessionStore,
@@ -200,22 +194,16 @@ describe("RTC credential route", () => {
     expect(response.body.error.code).toBe("ROOM_NOT_FOUND");
   });
 
-  it("requires the correct invite code for a private room", async () => {
-    const agent = request.agent(createTestApp({ visibility: "invite", inviteCode: "invite-123" }));
+  it("rejects the removed invite-code request field", async () => {
+    const agent = request.agent(createTestApp());
     await agent.post("/api/v1/auth/guest").send({}).expect(201);
 
-    const denied = await agent
+    const response = await agent
       .post("/api/v1/rooms/room_123/rtc-credentials")
       .set("Idempotency-Key", "request-123")
-      .send({});
-    expect(denied.status).toBe(403);
-    expect(denied.body.error.code).toBe("INVITE_REQUIRED");
-
-    const admitted = await agent
-      .post("/api/v1/rooms/room_123/rtc-credentials")
-      .set("Idempotency-Key", "request-456")
       .send({ inviteCode: "invite-123" });
-    expect(admitted.status).toBe(200);
+    expect(response.status).toBe(400);
+    expect(response.body.error.code).toBe("VALIDATION_ERROR");
   });
 
   it("returns a structured upstream error when signing fails", async () => {
