@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 
 import { AccountDialog } from "../components/AccountDialog";
 import { AppHeader, type LobbyTab } from "../components/AppHeader";
@@ -185,6 +185,8 @@ function RoomListSkeleton() {
 
 export function HomePage() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const navigationNotice = (location.state as { notice?: unknown } | null)?.notice;
   const session = useSessionStore((state) => state.session);
   const sessionStatus = useSessionStore((state) => state.status);
   const [activeTab, setActiveTab] = useState<LobbyTab>("official");
@@ -266,6 +268,11 @@ export function HomePage() {
         onTabChange={setActiveTab}
       />
       <main className="mx-auto max-w-6xl px-5 py-7 lg:px-8 lg:py-10">
+        {typeof navigationNotice === "string" ? (
+          <p className="mb-5 rounded-2xl border border-amber-100 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+            {navigationNotice}
+          </p>
+        ) : null}
         {activeTab === "official" ? (
           <section className="overflow-hidden rounded-[2rem] bg-gradient-to-br from-blue-500 via-blue-600 to-indigo-700 p-7 text-white shadow-xl shadow-blue-200/60 lg:p-10">
             <div className="max-w-2xl">

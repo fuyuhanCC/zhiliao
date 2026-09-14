@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { AccountDialog } from "../components/AccountDialog";
 import { AppHeader } from "../components/AppHeader";
 import { DebateLogDrawer } from "../features/debate-log/DebateLogDrawer";
 import { RoomMaterials } from "../features/room/RoomMaterials";
+import { useRoomRealtime, type RoomConnectionStatus } from "../features/room/use-room-realtime";
 import {
   ApiError,
   generateRoomSummary,
@@ -39,9 +40,28 @@ function wait(milliseconds: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
 }
 
+function connectionLabel(status: RoomConnectionStatus): string {
+  switch (status) {
+    case "connected":
+      return "实时已连接";
+    case "connecting":
+      return "实时连接中";
+    case "reconnecting":
+      return "正在重连";
+    case "error":
+      return "实时连接失败";
+    case "closed":
+      return "房间已结束";
+    default:
+      return "准备实时连接";
+  }
+}
+
 export function RoomPage() {
   const { roomId = "" } = useParams();
+  const navigate = useNavigate();
   const currentUserId = useSessionStore((state) => state.session?.user.userId);
+  const sessionStatus = useSessionStore((state) => state.status);
   const [pageStatus, setPageStatus] = useState<LoadStatus>("loading");
   const [pageError, setPageError] = useState<string | null>(null);
   const [reloadVersion, setReloadVersion] = useState(0);
@@ -189,6 +209,18 @@ export function RoomPage() {
     void refreshSummary();
   }, [logOpen, refreshSummary, speechTurnsPage?.transcriptVersion, summary]);
 
+  const handleRoomClosed = useCallback(() => {
+    navigate("/", { replace: true, state: { notice: "房间已结束" } });
+  }, [navigate]);
+
+  const realtime = useRoomRealtime({
+    roomId,
+    enabled: pageStatus === "ready" && sessionStatus === "ready" && snapshot !== null,
+    snapshot,
+    onSnapshot: setSnapshot,
+    onRoomClosed: handleRoomClosed,
+  });
+
   async function reloadMaterials() {
     setMaterialsStatus("loading");
     setMaterialsError(null);
@@ -277,6 +309,18 @@ export function RoomPage() {
                 </span>
                 {room.onlineCount} 人在线
                 {speaker ? ` · ${speaker.displayName}正在发言` : " · 当前无人发言"}
+              </p>
+              <p
+                className={`mt-1 text-xs ${
+                  realtime.status === "connected"
+                    ? "text-emerald-600"
+                    : realtime.status === "error"
+                      ? "text-rose-600"
+                      : "text-amber-600"
+                }`}
+              >
+                {connectionLabel(realtime.status)}
+                {realtime.error ? ` · ${realtime.error}` : ""}
               </p>
             </div>
           </div>
